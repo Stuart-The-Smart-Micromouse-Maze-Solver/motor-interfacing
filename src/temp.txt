@@ -1,0 +1,493 @@
+// #include <Arduino.h>
+// #include <Wire.h>
+// #include <vl53l4cx_class.h>
+
+// #define SDA_PIN 17
+// #define SCL_PIN 16
+// #define XSHUT_PIN_SENSOR_1 8
+// #define SENSOR1_ADDRESS 0x29
+
+// VL53L4CX sensor1(&Wire, XSHUT_PIN_SENSOR_1);
+// VL53L4CX_MultiRangingData_t rangingData1;
+// bool sensor1_ready = false;
+// int16_t distance = -1;
+
+// // ain 2 then ain 1, stdby, then bin 1 then bin 2
+// const int AIN1 = 37;
+// const int AIN2 = 36;
+// const int ENC_A = 21; // Encoder interrupt pin
+// const int ENC_B = 47; // Encoder interrupt pin
+
+// const int BIN1 = 40;
+// const int BIN2 = 39;
+// const int ENC_C = 1; // Encoder interrupt pin
+// const int ENC_D = 2; // Encoder interrupt pin
+
+// const int STBY = 38; // using 3.3V tie; set to a GPIO if you wired STBY to a pin
+
+// const int freq = 20000;
+// const int resolution = 8;
+// const int chA = 0;
+// const int chB = 1;
+// // Encoder constants
+// const int ENCODER_PPR = 7;         // Pulses Per Revolution
+// const float GEAR_RATIO = 20;       // Motor gear ratio
+// const float WHEEL_DIAMETER = 32.0; // Wheel diameter in mm
+// const float WHEEL_CIRCUMFERENCE = WHEEL_DIAMETER * PI;
+
+// // Direction tracking with separate counters for each motor
+// // Motor 1 forward = CW, Motor 2 forward = CCW
+// volatile int motor1ForwardCount = 0;  // Motor 1 Forward count (CW)
+// volatile int motor1BackwardCount = 0; // Motor 1 Backward count (CCW)
+// volatile int motor2ForwardCount = 0;  // Motor 2 Forward count (CCW)
+// volatile int motor2BackwardCount = 0; // Motor 2 Backward count (CW)
+
+// bool initSensor(VL53L4CX &sensor, uint8_t address, const char *sensorName)
+// {
+//   VL53L4CX_Error status = sensor.begin();
+//   if (status != VL53L4CX_ERROR_NONE)
+//   {
+//     Serial.print("  ");
+//     Serial.print(sensorName);
+//     Serial.print(" begin failed: ");
+//     Serial.println(status);
+//     return false;
+//   }
+
+//   status = sensor.InitSensor(address);
+//   if (status != VL53L4CX_ERROR_NONE)
+//   {
+//     Serial.print("  ");
+//     Serial.print(sensorName);
+//     Serial.print(" init failed: ");
+//     Serial.println(status);
+//     return false;
+//   }
+
+//   status = sensor.VL53L4CX_SetDistanceMode(VL53L4CX_DISTANCEMODE_MEDIUM);
+//   if (status != VL53L4CX_ERROR_NONE)
+//   {
+//     Serial.print("  ");
+//     Serial.print(sensorName);
+//     Serial.print(" distance mode failed: ");
+//     Serial.println(status);
+//     return false;
+//   }
+
+//   status = sensor.VL53L4CX_SetMeasurementTimingBudgetMicroSeconds(50000);
+//   if (status != VL53L4CX_ERROR_NONE)
+//   {
+//     Serial.print("  ");
+//     Serial.print(sensorName);
+//     Serial.print(" timing budget failed: ");
+//     Serial.println(status);
+//     return false;
+//   }
+
+//   status = sensor.VL53L4CX_StartMeasurement();
+//   if (status != VL53L4CX_ERROR_NONE)
+//   {
+//     Serial.print("  ");
+//     Serial.print(sensorName);
+//     Serial.print(" start measurement failed: ");
+//     Serial.println(status);
+//     return false;
+//   }
+
+//   Serial.print("  ");
+//   Serial.print(sensorName);
+//   Serial.print(" initialized successfully at address 0x");
+//   Serial.println(address, HEX);
+//   return true;
+// }
+
+// bool readSensor(VL53L4CX &sensor, VL53L4CX_MultiRangingData_t &rangingData, int16_t &distance)
+// {
+//   uint8_t dataReady = 0;
+//   VL53L4CX_Error status = sensor.VL53L4CX_GetMeasurementDataReady(&dataReady);
+
+//   if (status == VL53L4CX_ERROR_NONE && dataReady)
+//   {
+//     status = sensor.VL53L4CX_GetMultiRangingData(&rangingData);
+
+//     if (status == VL53L4CX_ERROR_NONE)
+//     {
+//       sensor.VL53L4CX_ClearInterruptAndStartMeasurement();
+//       if (rangingData.NumberOfObjectsFound > 0)
+//       {
+//         distance = rangingData.RangeData[0].RangeMilliMeter;
+//         return true;
+//       }
+//     }
+//   }
+//   return false;
+// }
+
+// // Encoder interrupt handler for Motor 1 (ENC_A and ENC_B)
+// void IRAM_ATTR handleEncoderMotor1()
+// {
+//   // Read both pins to determine direction
+//   int encAState = digitalRead(ENC_A);
+//   int encBState = digitalRead(ENC_B);
+
+//   // Determine direction based on pin states
+//   // Motor 1 forward = CW (when A and B are different)
+//   // Motor 1 backward = CCW (when A and B are equal)
+//   if (encAState == encBState)
+//   {
+//     motor1BackwardCount++; // Backward (CCW)
+//   }
+//   else
+//   {
+//     motor1ForwardCount++; // Forward (CW)
+//   }
+// }
+
+// // Encoder interrupt handler for Motor 2 (ENC_C and ENC_D)
+// void IRAM_ATTR handleEncoderMotor2()
+// {
+//   // Read both pins to determine direction
+//   int encCState = digitalRead(ENC_C);
+//   int encDState = digitalRead(ENC_D);
+
+//   // Determine direction based on pin states
+//   // Motor 2 forward = CCW (when C and D are equal)
+//   // Motor 2 backward = CW (when C and D are different)
+//   if (encCState == encDState)
+//   {
+//     motor2ForwardCount++; // Forward (CCW)
+//   }
+//   else
+//   {
+//     motor2BackwardCount++; // Backward (CW)
+//   }
+// }
+
+// void setup()
+// {
+//   Serial.begin(115200);
+//   delay(2000);
+
+//   // Initialize I2C bus for TOF sensor
+//   Serial.println("Initializing I2C bus...");
+//   Wire.begin(SDA_PIN, SCL_PIN);
+//   Serial.println("I2C bus initialized");
+
+//   // Initialize TOF sensor
+//   pinMode(XSHUT_PIN_SENSOR_1, OUTPUT);
+//   digitalWrite(XSHUT_PIN_SENSOR_1, LOW);
+//   delay(10);
+
+//   Serial.println("\nInitializing Sensor 1...");
+//   digitalWrite(XSHUT_PIN_SENSOR_1, HIGH);
+//   delay(100);
+//   sensor1_ready = initSensor(sensor1, SENSOR1_ADDRESS, "Sensor 1");
+
+//   Serial.print("Sensor 1 (0x29): ");
+//   Serial.println(sensor1_ready ? "READY" : "FAILED");
+
+//   // Motor A setup
+//   pinMode(AIN1, OUTPUT);
+//   pinMode(AIN2, OUTPUT);
+//   pinMode(BIN1, OUTPUT);
+//   pinMode(BIN2, OUTPUT);
+//   Serial.println("Motor pins configured");
+//   Serial.flush();
+
+//   if (STBY != -1)
+//   {
+//     pinMode(STBY, OUTPUT);
+//     digitalWrite(STBY, HIGH);
+//   }
+
+//   // PWM setup for Motor A
+//   ledcSetup(chA, freq, resolution);
+//   ledcSetup(chB, freq, resolution);
+//   ledcAttachPin(AIN1, chA);
+//   ledcAttachPin(BIN1, chB);
+
+//   // Encoder interrupt pins setup
+//   pinMode(ENC_A, INPUT_PULLUP);
+//   pinMode(ENC_B, INPUT_PULLUP);
+//   pinMode(ENC_C, INPUT_PULLUP);
+//   pinMode(ENC_D, INPUT_PULLUP);
+
+//   attachInterrupt(digitalPinToInterrupt(ENC_A), handleEncoderMotor1, CHANGE);
+//   attachInterrupt(digitalPinToInterrupt(ENC_C), handleEncoderMotor2, CHANGE);
+// }
+
+// void setMotorA(int speed, int motor)
+// { // -255 .. 255
+//   if (motor == 1)
+//   {
+
+//     if (speed > 0)
+//     {
+//       digitalWrite(AIN2, LOW);
+//       ledcAttachPin(AIN1, chA);
+//       ledcWrite(chA, speed);
+//     }
+//     else if (speed < 0)
+//     {
+//       digitalWrite(AIN1, LOW);
+//       ledcAttachPin(AIN2, chA);
+//       ledcWrite(chA, -speed);
+//     }
+//     else
+//     {
+//       ledcWrite(chA, 0);
+//       digitalWrite(AIN1, LOW);
+//       digitalWrite(AIN2, LOW);
+//     }
+//   }
+//   else if (motor == 2)
+//   {
+//     if (speed > 0)
+//     {
+//       digitalWrite(BIN2, LOW);
+//       ledcAttachPin(BIN1, chB);
+//       ledcWrite(chB, speed);
+//     }
+//     else if (speed < 0)
+//     {
+//       digitalWrite(BIN1, LOW);
+//       ledcAttachPin(BIN2, chB);
+//       ledcWrite(chB, -speed);
+//     }
+//     else
+//     {
+//       ledcWrite(chB, 0);
+//       digitalWrite(BIN1, LOW);
+//       digitalWrite(BIN2, LOW);
+//     }
+//   }
+// }
+
+// // Get current distance traveled in mm for a specific motor
+// float getMotorDistanceMm(int motor)
+// {
+//   if (motor == 1)
+//   {
+//     float motor1ForwardWheelRevolutions = (float)motor1ForwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor1BackwardWheelRevolutions = (float)motor1BackwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor1ForwardDistanceMm = motor1ForwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor1BackwardDistanceMm = motor1BackwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     return motor1ForwardDistanceMm - motor1BackwardDistanceMm;
+//   }
+//   else if (motor == 2)
+//   {
+//     float motor2ForwardWheelRevolutions = (float)motor2ForwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor2BackwardWheelRevolutions = (float)motor2BackwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor2ForwardDistanceMm = motor2ForwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor2BackwardWheelRevolutions = motor2BackwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor2BackwardDistanceMm = motor2BackwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     return motor2ForwardDistanceMm - motor2BackwardDistanceMm;
+//   }
+//   return 0.0;
+// }
+
+// // Get current distance traveled in mm (average of both motors)
+// float getCurrentDistanceMm()
+// {
+//   return (getMotorDistanceMm(1) + getMotorDistanceMm(2)) / 2.0;
+// }
+
+// // Move the mouse forward a given distance in cm with independent motor control to prevent drift
+// // speed: motor speed (-255 to 255), positive for forward, negative for backward
+// void moveDistanceCm(float distanceCm, int speed = 150)
+// {
+//   // Convert cm to mm
+//   float targetDistanceMm = distanceCm * 10.0;
+
+//   // Store initial distances for each motor
+//   float initialMotor1DistanceMm = getMotorDistanceMm(1);
+//   float initialMotor2DistanceMm = getMotorDistanceMm(2);
+
+//   Serial.print("Moving ");
+//   Serial.print(distanceCm);
+//   Serial.print(" cm (");
+//   Serial.print(targetDistanceMm);
+//   Serial.print(" mm) at speed ");
+//   Serial.println(speed);
+
+//   // Start motors at base speed
+//   int motor1Speed = speed;
+//   int motor2Speed = speed;
+//   setMotorA(motor1Speed, 1);
+//   setMotorA(motor2Speed, 2);
+
+//   // Drift correction parameters
+//   const float maxSpeedCorrection = 50;  // Maximum speed adjustment for correction
+//   const float correctionGain = 2.0;     // Proportional gain for drift correction
+
+//   // Monitor progress until both motors reach target distance
+//   unsigned long lastCheck = millis();
+//   while (true)
+//   {
+//     // Get current distances for each motor
+//     float motor1CurrentDistanceMm = getMotorDistanceMm(1);
+//     float motor2CurrentDistanceMm = getMotorDistanceMm(2);
+
+//     // Calculate distance traveled for each motor
+//     float motor1DistanceTraveledMm = motor1CurrentDistanceMm - initialMotor1DistanceMm;
+//     float motor2DistanceTraveledMm = motor2CurrentDistanceMm - initialMotor2DistanceMm;
+
+//     // Calculate average distance traveled
+//     float avgDistanceTraveledMm = (motor1DistanceTraveledMm + motor2DistanceTraveledMm) / 2.0;
+
+//     // Check if we've reached the target distance (using average)
+//     bool targetReached = false;
+//     if (speed > 0)
+//     {
+//       if (avgDistanceTraveledMm >= targetDistanceMm)
+//       {
+//         targetReached = true;
+//       }
+//     }
+//     else
+//     {
+//       if (avgDistanceTraveledMm <= -targetDistanceMm)
+//       {
+//         targetReached = true;
+//       }
+//     }
+
+//     if (targetReached)
+//     {
+//       break;
+//     }
+
+//     // Calculate drift (difference between motors)
+//     float driftMm = motor1DistanceTraveledMm - motor2DistanceTraveledMm;
+
+//     // Apply proportional correction to reduce drift
+//     // If motor1 is ahead, slow it down or speed up motor2
+//     // If motor2 is ahead, slow it down or speed up motor1
+//     float speedCorrection = driftMm * correctionGain;
+    
+//     // Limit the correction to prevent excessive speed changes
+//     if (speedCorrection > maxSpeedCorrection)
+//       speedCorrection = maxSpeedCorrection;
+//     if (speedCorrection < -maxSpeedCorrection)
+//       speedCorrection = -maxSpeedCorrection;
+
+//     // Adjust motor speeds (opposite corrections to maintain average speed)
+//     motor1Speed = speed - (int)speedCorrection;
+//     motor2Speed = speed + (int)speedCorrection;
+
+//     // Clamp speeds to valid range
+//     if (speed > 0)
+//     {
+//       motor1Speed = constrain(motor1Speed, 0, 255);
+//       motor2Speed = constrain(motor2Speed, 0, 255);
+//     }
+//     else
+//     {
+//       motor1Speed = constrain(motor1Speed, -255, 0);
+//       motor2Speed = constrain(motor2Speed, -255, 0);
+//     }
+
+//     // Apply corrected speeds
+//     setMotorA(motor1Speed, 1);
+//     setMotorA(motor2Speed, 2);
+
+//     // Optional: Print progress every 100ms
+//     if (millis() - lastCheck >= 100)
+//     {
+//       Serial.print("M1: ");
+//       Serial.print(motor1DistanceTraveledMm, 1);
+//       Serial.print("mm, M2: ");
+//       Serial.print(motor2DistanceTraveledMm, 1);
+//       Serial.print("mm, Avg: ");
+//       Serial.print(avgDistanceTraveledMm, 1);
+//       Serial.print("mm / ");
+//       Serial.print(targetDistanceMm, 1);
+//       Serial.print("mm, Drift: ");
+//       Serial.print(driftMm, 1);
+//       Serial.println("mm");
+//       lastCheck = millis();
+//     }
+
+//     // Small delay to prevent tight loop
+//     delay(10);
+//   }
+
+//   // Stop motors
+//   setMotorA(0, 1);
+//   setMotorA(0, 2);
+
+//   // Final distance calculations
+//   float finalMotor1DistanceMm = getMotorDistanceMm(1);
+//   float finalMotor2DistanceMm = getMotorDistanceMm(2);
+//   float motor1FinalTraveledMm = finalMotor1DistanceMm - initialMotor1DistanceMm;
+//   float motor2FinalTraveledMm = finalMotor2DistanceMm - initialMotor2DistanceMm;
+//   float avgFinalDistanceMm = (motor1FinalTraveledMm + motor2FinalTraveledMm) / 2.0;
+//   float finalDriftMm = motor1FinalTraveledMm - motor2FinalTraveledMm;
+
+//   Serial.print("Movement complete. M1: ");
+//   Serial.print(motor1FinalTraveledMm, 1);
+//   Serial.print("mm, M2: ");
+//   Serial.print(motor2FinalTraveledMm, 1);
+//   Serial.print("mm, Avg: ");
+//   Serial.print(avgFinalDistanceMm, 1);
+//   Serial.print("mm (");
+//   Serial.print(avgFinalDistanceMm / 10.0, 1);
+//   Serial.print(" cm), Final drift: ");
+//   Serial.print(finalDriftMm, 1);
+//   Serial.println("mm");
+// }
+
+// void loop()
+// {
+//   static int motorSpeed = 0;
+//   static unsigned long lastUpdate = 0;
+//   static int maxSpeedTimes = 0;
+
+//   static bool hasMoved = false;
+
+//   unsigned long currentTime = millis();
+
+//   // Read TOF sensor
+//   if (sensor1_ready)
+//   {
+//     readSensor(sensor1, rangingData1, distance);
+//   }
+
+//   // Increase speed every 500ms
+//   if (currentTime - lastUpdate >= 50)
+//   {
+//     // Calculate distance traveled for Motor 1
+//     float motor1ForwardWheelRevolutions = (float)motor1ForwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor1BackwardWheelRevolutions = (float)motor1BackwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor1ForwardDistanceMm = motor1ForwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor1BackwardDistanceMm = motor1BackwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor1NetDistanceMm = motor1ForwardDistanceMm - motor1BackwardDistanceMm;
+
+//     // Calculate distance traveled for Motor 2
+//     float motor2ForwardWheelRevolutions = (float)motor2ForwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor2BackwardWheelRevolutions = (float)motor2BackwardCount / (ENCODER_PPR * GEAR_RATIO);
+//     float motor2ForwardDistanceMm = motor2ForwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor2BackwardDistanceMm = motor2BackwardWheelRevolutions * WHEEL_CIRCUMFERENCE;
+//     float motor2NetDistanceMm = motor2ForwardDistanceMm - motor2BackwardDistanceMm;
+
+//     if (!hasMoved)
+//     {
+//       moveDistanceCm(10, 175);
+//       hasMoved = true;
+//       Serial.println("Moved 10 cm");
+//     }
+//     Serial.print("Motor 1 - Forward: ");
+//     Serial.print(motor1ForwardDistanceMm, 1);
+//     Serial.print("mm Backward: ");
+//     Serial.print(motor1BackwardDistanceMm, 1);
+//     Serial.print("mm | Motor 2 - Forward: ");
+//     Serial.print(motor2ForwardDistanceMm, 1);
+//     Serial.print("mm Backward: ");
+//     Serial.print(motor2BackwardDistanceMm, 1);
+//     Serial.print("mm | Distance: ");
+//     Serial.print(distance);
+//     Serial.println("mm");
+
+//     lastUpdate = currentTime;
+//   }
+// }
