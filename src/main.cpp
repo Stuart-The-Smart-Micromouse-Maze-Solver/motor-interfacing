@@ -30,8 +30,9 @@ const int ENCODER_PPR = 7;
 const float GEAR_RATIO = 20.0;
 const float WHEEL_DIAMETER_M = 0.032;
 const float WHEEL_BASE_M = 0.103;
+const float QUAD_FACTOR = 4.0;
 
-const float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR; // 140
+const float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR * QUAD_FACTOR; // 560
 const float METERS_PER_COUNT = WHEEL_DIAMETER_M * PI / COUNTS_PER_REV;
 
 // ============================================================================
@@ -557,6 +558,25 @@ void testPID()
   Serial.println("PID test complete!");
 }
 
+// Demo V1.0 
+#define AUTO_DEMO 1
+
+void autoDemoLoop(){
+  static bool inRest = false; 
+  static uint32_t restStart = 0;
+
+  if (!inRest){
+    moveForwardCm(100.0, 250.0); // Move 100cm at 250 RPM
+    stopMotors();
+    inRest = true;
+    restStart = millis();
+  } else {
+    if (millis() - restStart >= 10000){
+      inRest = false;
+    }
+  }
+}
+
 // ============================================================================
 // Setup
 // ============================================================================
@@ -614,6 +634,10 @@ void setup()
 // ============================================================================
 void loop()
 {
+  #if AUTO_DEMO
+    autoDemoLoop();
+  #endif
+  
   // Check for serial commands
   if (Serial.available())
   {
