@@ -30,7 +30,7 @@ const int ENCODER_PPR = 7;
 const float GEAR_RATIO = 20.0;
 const float WHEEL_DIAMETER_M = 0.032;
 const float WHEEL_BASE_M = 0.103;
-const float QUAD_FACTOR = 4.0;
+const float QUAD_FACTOR = 1.0;
 
 const float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR * QUAD_FACTOR; // 560
 const float METERS_PER_COUNT = WHEEL_DIAMETER_M * PI / COUNTS_PER_REV;
@@ -561,21 +561,33 @@ void testPID()
 // Demo V1.0 
 #define AUTO_DEMO 1
 
-void autoDemoLoop(){
-  static bool inRest = false; 
+void autoDemoLoop() {
+  static const float seq_cm[] = {18.0f, 36.0f, 54.0f, 72.0f};
+  static const size_t N = sizeof(seq_cm) / sizeof(seq_cm[0]);
+  static size_t idx = 0;
+
+  static bool inRest = false;
   static uint32_t restStart = 0;
 
-  if (!inRest){
-    moveForwardCm(100.0, 250.0); // Move 100cm at 250 RPM
+  const float SPEED_RPM_HINT = 200.0f;  
+  const uint32_t REST_MS = 10000UL;     
+
+  if (!inRest) {
+    moveForwardCm(seq_cm[idx], SPEED_RPM_HINT);
     stopMotors();
+
     inRest = true;
     restStart = millis();
+
+    idx = (idx + 1) % N;
+
   } else {
-    if (millis() - restStart >= 10000){
-      inRest = false;
+    if (millis() - restStart >= REST_MS) {
+      inRest = false; 
     }
   }
 }
+
 
 // ============================================================================
 // Setup
@@ -637,7 +649,7 @@ void loop()
   #if AUTO_DEMO
     autoDemoLoop();
   #endif
-  
+
   // Check for serial commands
   if (Serial.available())
   {
