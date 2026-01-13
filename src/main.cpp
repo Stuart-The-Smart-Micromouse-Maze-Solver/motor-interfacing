@@ -1,8 +1,20 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_FXOS8700.h>
+#include <Adafruit_FXAS21002C.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_NeoPixel.h>
 
 // ============================================================================
 // Pins
 // ============================================================================
+// I2C for IMU
+const int SDA_PIN = 17;
+const int SCL_PIN = 16;
+
+// NeoPixel LED
+const int NEOPIXEL_PIN = 38;
+const int NUM_PIXELS = 1;
 // Motor 1 (Left)
 const int AIN1 = 37;
 const int AIN2 = 36;
@@ -16,6 +28,24 @@ const int ENC_C = 1;
 const int ENC_D = 2;
 
 const int STBY = 38;
+
+// ============================================================================
+// NeoPixel LED
+// ============================================================================
+Adafruit_NeoPixel pixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+// LED State Colors
+const uint32_t COLOR_STARTUP = pixel.Color(255, 255, 0); // Yellow - Starting up
+const uint32_t COLOR_REST = pixel.Color(0, 255, 0);      // Green - Resting/Idle
+const uint32_t COLOR_TURNING = pixel.Color(255, 0, 255); // Magenta - Turning
+const uint32_t COLOR_MOVING = pixel.Color(0, 0, 255);    // Blue - Moving forward
+const uint32_t COLOR_ERROR = pixel.Color(255, 0, 0);     // Red - Error
+
+void setLEDColor(uint32_t color)
+{
+  pixel.setPixelColor(0, color);
+  pixel.show();
+}
 
 // PWM Configuration
 const int PWM_FREQ = 20000;
@@ -34,6 +64,219 @@ const float QUAD_FACTOR = 1.0;
 
 const float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR * QUAD_FACTOR; // 560
 const float METERS_PER_COUNT = WHEEL_DIAMETER_M * PI / COUNTS_PER_REV;
+
+// ============================================================================
+// IMU (FXOS8700 + FXAS21002C)
+// ============================================================================
+Adafruit_FXOS8700 accelMag = Adafruit_FXOS8700(0x8700A, 0x8700B);
+Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
+
+struct IMUData
+{
+  // Acceleration (m/s^2)
+  float accelX, accelY, accelZ;
+
+  // Angular velocity (rad/s)
+  float gyroX, gyroY, gyroZ;
+
+  // Integrated heading from gyro Z-axis (degrees, 0-360)
+  float heading;
+
+  bool accelValid;
+  bool gyroValid;
+};
+
+IMUData imuData = {0, 0, 0, 0, 0, 0, 0, false, false};
+
+// Gyro bias calibration (offset when stationary)
+float gyroBiasX = 0.0;
+float gyroBiasY = 0.0;
+float gyroBiasZ = 0.0;
+
+// Timing for gyro integration
+uint32_t lastIMUUpdate = 0;
+
+void initIMU()
+{
+  Serial.println("Initializing IMU (FXOS8700 + FXAS21002C)...");
+
+  // Initialize I2C
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  // Initialize accelerometer
+  if (!accelMag.begin())
+  {
+    Serial.println("ERROR: Could not find FXOS8700 sensor!");
+    Serial.println("Check wiring: SDA=17, SCL=16");
+    imuData.accelValid = false;
+  }
+  else
+  {
+    Serial.println("✓ FXOS8700 (Accelerometer) initialized");
+    imuData.accelValid = true;
+  }
+
+  // Initialize gyroscope
+  if (!gyro.begin())
+  {
+    Serial.println("ERROR: Could not find FXAS21002C gyroscope!");
+    Serial.println("Check wiring: SDA=17, SCL=16");
+    imuData.gyroValid = false;
+  }
+  else
+  {
+    Serial.println("✓ FXAS21002C (Gyroscope) initialized");
+    imuData.gyroValid = true;
+
+    // Set gyro range (250, 500, 1000, or 2000 dps)
+    gyro.setRange(GYRO_RANGE_250DPS);
+  }
+
+  lastIMUUpdate = micros();
+
+  if (imuData.accelValid || imuData.gyroValid)
+  {
+    Serial.println("IMU initialization complete!");
+  }
+  else
+  {
+    Serial.println("WARNING: No IMU sensors detected!");
+  }
+}
+
+void updateIMU()
+{
+  if (!imuData.accelValid && !imuData.gyroValid)
+    return;
+
+  // Calculate time delta for gyro integration
+  uint32_t now = micros();
+  float dt = (now - lastIMUUpdate) / 1000000.0;
+  lastIMUUpdate = now;
+
+  // Read accelerometer
+  if (imuData.accelValid)
+  {
+    sensors_event_t accel, mag;
+    if (accelMag.getEvent(&accel, &mag))
+    {
+      imuData.accelX = accel.acceleration.x;
+      imuData.accelY = accel.acceleration.y;
+      imuData.accelZ = accel.acceleration.z;
+    }
+  }
+
+  // Read gyroscope
+  if (imuData.gyroValid)
+  {
+    sensors_event_t gyroEvent;
+    if (gyro.getEvent(&gyroEvent))
+    {
+      // Store angular velocity (rad/s) with bias correction
+      imuData.gyroX = gyroEvent.gyro.x - gyroBiasX;
+      imuData.gyroY = gyroEvent.gyro.y - gyroBiasY;
+      imuData.gyroZ = gyroEvent.gyro.z - gyroBiasZ;
+
+      // Integrate gyro Z-axis for heading
+      imuData.heading += (imuData.gyroZ * 180.0 / PI) * dt;
+
+      // Normalize to 0-360
+      while (imuData.heading >= 360.0)
+        imuData.heading -= 360.0;
+      while (imuData.heading < 0.0)
+        imuData.heading += 360.0;
+    }
+  }
+}
+
+void printIMUData()
+{
+  if (!imuData.accelValid && !imuData.gyroValid)
+  {
+    Serial.println("IMU: No sensors available");
+    return;
+  }
+
+  Serial.println("\n=== IMU Data ===");
+
+  if (imuData.gyroValid)
+  {
+    Serial.printf("Heading: %6.1f° (integrated from gyro)\n", imuData.heading);
+    Serial.printf("Rotation Rate (°/s): X:%+7.2f Y:%+7.2f Z:%+7.2f\n",
+                  imuData.gyroX * 180.0 / PI,
+                  imuData.gyroY * 180.0 / PI,
+                  imuData.gyroZ * 180.0 / PI);
+  }
+
+  if (imuData.accelValid)
+  {
+    Serial.printf("Acceleration (m/s²): X:%+6.2f Y:%+6.2f Z:%+6.2f\n",
+                  imuData.accelX, imuData.accelY, imuData.accelZ);
+
+    // Calculate magnitude
+    float accelMag = sqrt(imuData.accelX * imuData.accelX +
+                          imuData.accelY * imuData.accelY +
+                          imuData.accelZ * imuData.accelZ);
+    Serial.printf("Acceleration Magnitude: %.2f m/s²\n", accelMag);
+  }
+
+  Serial.println();
+}
+
+void calibrateGyro()
+{
+  if (!imuData.gyroValid)
+  {
+    Serial.println("ERROR: Gyroscope not available");
+    return;
+  }
+
+  Serial.println("\n=== Gyroscope Calibration ===");
+  Serial.println("Keep the robot STATIONARY for 5 seconds...");
+
+  float sumX = 0, sumY = 0, sumZ = 0;
+  int samples = 0;
+
+  uint32_t startTime = millis();
+
+  while (millis() - startTime < 5000)
+  {
+    sensors_event_t gyroEvent;
+    if (gyro.getEvent(&gyroEvent))
+    {
+      sumX += gyroEvent.gyro.x;
+      sumY += gyroEvent.gyro.y;
+      sumZ += gyroEvent.gyro.z;
+      samples++;
+    }
+    delay(10);
+  }
+
+  if (samples > 0)
+  {
+    gyroBiasX = sumX / samples;
+    gyroBiasY = sumY / samples;
+    gyroBiasZ = sumZ / samples;
+
+    Serial.println("Gyro calibration complete!");
+    Serial.printf("Bias - X: %.4f, Y: %.4f, Z: %.4f rad/s\n",
+                  gyroBiasX, gyroBiasY, gyroBiasZ);
+    Serial.println("Add these values to your code for persistent calibration.");
+
+    // Reset gyro heading
+    imuData.heading = 0;
+  }
+  else
+  {
+    Serial.println("ERROR: No gyro data collected");
+  }
+}
+
+void resetIMUHeading()
+{
+  imuData.heading = 0;
+  Serial.println("IMU heading reset to 0°");
+}
 
 // ============================================================================
 // Encoder
@@ -276,12 +519,12 @@ void moveForwardCm(float distanceCm, float speedRPM)
   uint32_t lastUpdate = millis();
   uint32_t lastPrint = millis();
   uint32_t startTime = millis();
-  
+
   // Timeout: 10 seconds max
   const uint32_t TIMEOUT_MS = 10000;
-  
+
   // Drift correction gain - how aggressively to correct drift
-  const float DRIFT_GAIN = 30.0;  // RPM adjustment per cm of drift
+  const float DRIFT_GAIN = 30.0; // RPM adjustment per cm of drift
 
   // Set initial motor command to get things moving
   int initialCmd = map(speedRPM, 0, 300, 0, 255);
@@ -299,11 +542,11 @@ void moveForwardCm(float distanceCm, float speedRPM)
       Serial.println("ERROR: Movement timeout!");
       break;
     }
-    
+
     // Calculate distance traveled by each wheel
     float leftDistCm = (leftEncoder.counts - startLeft) * METERS_PER_COUNT * 100.0;
     float rightDistCm = (rightEncoder.counts - startRight) * METERS_PER_COUNT * 100.0;
-    
+
     // Use minimum distance to ensure BOTH wheels reach target
     float minDistCm = min(leftDistCm, rightDistCm);
 
@@ -312,7 +555,7 @@ void moveForwardCm(float distanceCm, float speedRPM)
     {
       break;
     }
-    
+
     // Update every 10ms
     if (millis() - lastUpdate >= 10)
     {
@@ -324,25 +567,27 @@ void moveForwardCm(float distanceCm, float speedRPM)
 
       // Calculate drift: positive = left is ahead, negative = right is ahead
       float driftCm = leftDistCm - rightDistCm;
-      
+
       // Calculate RPM correction based on drift
       // If left is ahead (positive drift), slow left down / speed right up
       float driftCorrection = driftCm * DRIFT_GAIN;
-      
+
       // Slow down as we approach target
       float remaining = distanceCm - minDistCm;
       float baseRPM = speedRPM;
-      if (remaining < 3.0) baseRPM = speedRPM * 0.6;
-      if (remaining < 1.0) baseRPM = speedRPM * 0.3;
-      
+      if (remaining < 3.0)
+        baseRPM = speedRPM * 0.6;
+      if (remaining < 1.0)
+        baseRPM = speedRPM * 0.3;
+
       // Apply drift correction to target RPMs
       float leftTargetRPM = baseRPM - driftCorrection;
       float rightTargetRPM = baseRPM + driftCorrection;
-      
+
       // Clamp to reasonable range
       leftTargetRPM = constrain(leftTargetRPM, 10.0, speedRPM * 1.5);
       rightTargetRPM = constrain(rightTargetRPM, 10.0, speedRPM * 1.5);
-      
+
       // Apply PID speed control
       setMotorSpeedRPM(&leftMotor, &leftEncoder, &leftPID, leftTargetRPM);
       setMotorSpeedRPM(&rightMotor, &rightEncoder, &rightPID, rightTargetRPM);
@@ -367,60 +612,118 @@ void moveForwardCm(float distanceCm, float speedRPM)
   float finalLeft = (leftEncoder.counts - startLeft) * METERS_PER_COUNT * 100;
   float finalRight = (rightEncoder.counts - startRight) * METERS_PER_COUNT * 100;
   float finalDrift = finalLeft - finalRight;
-  Serial.printf("Done! L: %.1fcm, R: %.1fcm (final drift: %+.1fcm)\n", 
+  Serial.printf("Done! L: %.1fcm, R: %.1fcm (final drift: %+.1fcm)\n",
                 finalLeft, finalRight, finalDrift);
 }
 
 void turnDegrees(float degrees, float speedRPM)
 {
-  // Calculate arc length each wheel needs to travel
-  float arcLength = (degrees / 360.0) * PI * WHEEL_BASE_M;
+  if (!imuData.gyroValid)
+  {
+    Serial.println("ERROR: Gyro not available, cannot turn accurately!");
+    return;
+  }
 
-  int64_t startLeft = leftEncoder.counts;
-  int64_t startRight = rightEncoder.counts;
+  // Update IMU a few times to get stable reading
+  for (int i = 0; i < 5; i++)
+  {
+    updateIMU();
+    delay(10);
+  }
 
-  resetPID(&leftPID);
-  resetPID(&rightPID);
+  float targetAngle = abs(degrees);
+  bool turningRight = degrees > 0;
+  float startHeading = imuData.heading;
+  float lastHeading = startHeading;
+  float totalTurned = 0.0;
 
-  leftEncoder.prevTime = micros();
-  rightEncoder.prevTime = micros();
-  uint32_t lastUpdate = millis();
-
-  int initialCmd = map(speedRPM, 0, 300, 0, 200);
-  initialCmd = constrain(initialCmd, 40, 150);
+  // Set motor command based on turn direction
+  int initialCmd = map(speedRPM, 0, 300, 0, 255);
+  initialCmd = constrain(initialCmd, 100, 200); // Maximum power for fast turning
 
   // For turning: one wheel forward, one backward
-  int leftCmd = (degrees > 0) ? -initialCmd : initialCmd;
-  int rightCmd = (degrees > 0) ? initialCmd : -initialCmd;
+  // Positive degrees = turn right (CW): left forward, right backward
+  // Negative degrees = turn left (CCW): left backward, right forward
+  int leftCmd = turningRight ? initialCmd : -initialCmd;
+  int rightCmd = turningRight ? -initialCmd : initialCmd;
 
   setMotorCommand(&leftMotor, leftCmd);
   setMotorCommand(&rightMotor, rightCmd);
 
-  Serial.printf("Turning %.1f degrees at %.0f RPM\n", degrees, speedRPM);
+  Serial.printf("Turning %.1f° %s (gyro-based) | Start: %.1f°\n",
+                targetAngle, turningRight ? "RIGHT" : "LEFT", startHeading);
+
+  uint32_t startTime = millis();
+  uint32_t lastPrint = millis();
+  const uint32_t TIMEOUT_MS = 10000; // 10 second timeout
+  const float ANGLE_TOLERANCE = 3.0; // Stop when within 3 degrees
 
   while (true)
   {
-    float leftDistM = abs((leftEncoder.counts - startLeft) * METERS_PER_COUNT);
-    float rightDistM = abs((rightEncoder.counts - startRight) * METERS_PER_COUNT);
-    float avgDistM = (leftDistM + rightDistM) / 2.0;
+    // Update IMU to get current heading
+    updateIMU();
+    float currentHeading = imuData.heading;
 
-    if (avgDistM >= abs(arcLength))
+    // Calculate angular change since last reading
+    float delta = currentHeading - lastHeading;
+
+    // Handle wraparound (0 <-> 360 transition)
+    if (delta > 180.0)
+    {
+      delta -= 360.0; // Crossed 0 going backward (CCW)
+    }
+    else if (delta < -180.0)
+    {
+      delta += 360.0; // Crossed 0 going forward (CW)
+    }
+
+    // Accumulate total rotation (always positive)
+    totalTurned += abs(delta);
+    lastHeading = currentHeading;
+
+    // Check if we've reached target
+    if (totalTurned >= targetAngle - ANGLE_TOLERANCE)
     {
       break;
     }
 
-    if (millis() - lastUpdate >= 10)
+    // Timeout check
+    if (millis() - startTime > TIMEOUT_MS)
     {
-      float dt = (millis() - lastUpdate) / 1000.0;
-      lastUpdate = millis();
-      updateMotorSpeeds(dt);
+      Serial.println("ERROR: Turn timeout!");
+      break;
     }
 
-    delay(1);
+    // Slow down as we approach target
+    float remaining = targetAngle - totalTurned;
+    if (remaining < 10.0 && remaining > 0)
+    {
+      int slowCmd = initialCmd * 0.85; // Only reduce to 85% (minimal slowdown)
+      leftCmd = turningRight ? slowCmd : -slowCmd;
+      rightCmd = turningRight ? -slowCmd : slowCmd;
+      setMotorCommand(&leftMotor, leftCmd);
+      setMotorCommand(&rightMotor, rightCmd);
+    }
+
+    // Print status every 150ms
+    if (millis() - lastPrint >= 150)
+    {
+      Serial.printf("  Turned: %.1f° | Heading: %.1f° | Remaining: %.1f°\n",
+                    totalTurned, currentHeading, targetAngle - totalTurned);
+      lastPrint = millis();
+    }
+
+    delay(10); // Small delay for loop timing
   }
 
   stopMotors();
-  Serial.printf("Turn complete!\n");
+  delay(100);  // Let it settle
+  updateIMU(); // Final update
+
+  float finalHeading = imuData.heading;
+
+  Serial.printf("Turn complete! Target: %.1f° | Total Turned: %.1f° | Final Heading: %.1f° | Error: %.1f°\n",
+                targetAngle, totalTurned, finalHeading, abs(targetAngle - totalTurned));
 }
 
 // ============================================================================
@@ -558,10 +861,11 @@ void testPID()
   Serial.println("PID test complete!");
 }
 
-// Demo V1.0 
-#define AUTO_DEMO 1
+// Demo V1.0 - Movement Demo
+#define AUTO_DEMO 0
 
-void autoDemoLoop() {
+void autoDemoLoop()
+{
   static const float seq_cm[] = {18.0f, 36.0f, 54.0f, 72.0f};
   static const size_t N = sizeof(seq_cm) / sizeof(seq_cm[0]);
   static size_t idx = 0;
@@ -569,10 +873,11 @@ void autoDemoLoop() {
   static bool inRest = false;
   static uint32_t restStart = 0;
 
-  const float SPEED_RPM_HINT = 200.0f;  
-  const uint32_t REST_MS = 10000UL;     
+  const float SPEED_RPM_HINT = 200.0f;
+  const uint32_t REST_MS = 10000UL;
 
-  if (!inRest) {
+  if (!inRest)
+  {
     moveForwardCm(seq_cm[idx], SPEED_RPM_HINT);
     stopMotors();
 
@@ -580,14 +885,58 @@ void autoDemoLoop() {
     restStart = millis();
 
     idx = (idx + 1) % N;
-
-  } else {
-    if (millis() - restStart >= REST_MS) {
-      inRest = false; 
+  }
+  else
+  {
+    if (millis() - restStart >= REST_MS)
+    {
+      inRest = false;
     }
   }
 }
 
+// Demo V2.0 - Turning Demo
+#define TURN_DEMO 1
+
+void turnDemoLoop()
+{
+  static const float seq_degrees[] = {90.0f, 180.0f, 270.0f, 360.0f};
+  static const size_t N = sizeof(seq_degrees) / sizeof(seq_degrees[0]);
+  static size_t idx = 0;
+
+  static bool inRest = false;
+  static uint32_t restStart = 0;
+
+  const float TURN_SPEED_RPM = 200.0f; // Same speed as movement demo
+  const uint32_t REST_MS = 7500UL;     // 10 seconds rest between turns (same as movement demo)
+
+  if (!inRest)
+  {
+    // Set LED to magenta (turning)
+    setLEDColor(COLOR_TURNING);
+
+    Serial.printf("\n>>> Demo Turn %d/%d: %.0f degrees <<<\n",
+                  idx + 1, N, seq_degrees[idx]);
+
+    turnDegrees(seq_degrees[idx], TURN_SPEED_RPM);
+    stopMotors();
+
+    // Set LED to green (rest)
+    setLEDColor(COLOR_REST);
+
+    inRest = true;
+    restStart = millis();
+
+    idx = (idx + 1) % N;
+  }
+  else
+  {
+    if (millis() - restStart >= REST_MS)
+    {
+      inRest = false;
+    }
+  }
+}
 
 // ============================================================================
 // Setup
@@ -597,6 +946,11 @@ void setup()
   Serial.begin(115200);
   delay(2000);
   Serial.println("\n=== Micromouse Motor Control ===");
+
+  // Initialize NeoPixel
+  pixel.begin();
+  pixel.setBrightness(50);    // Set brightness to 50/255 (not too bright)
+  setLEDColor(COLOR_STARTUP); // Yellow during startup
 
   // Motor pins
   pinMode(AIN1, OUTPUT);
@@ -609,8 +963,8 @@ void setup()
   digitalWrite(BIN2, LOW);
 
   // Standby pin
-    pinMode(STBY, OUTPUT);
-    digitalWrite(STBY, HIGH);
+  pinMode(STBY, OUTPUT);
+  digitalWrite(STBY, HIGH);
 
   // PWM setup
   ledcSetup(PWM_CH_LEFT, PWM_FREQ, PWM_RESOLUTION);
@@ -634,11 +988,20 @@ void setup()
   leftEncoder.prevTime = micros();
   rightEncoder.prevTime = micros();
 
+  // Initialize IMU
+  initIMU();
+
   Serial.println("Initialization complete!");
+
+  // Set LED to green (rest/idle state)
+  setLEDColor(COLOR_REST);
   Serial.printf("Counts per rev: %.0f\n", COUNTS_PER_REV);
   Serial.printf("Meters per count: %.6f\n", METERS_PER_COUNT);
   Serial.printf("PID: Kp=%.2f Ki=%.2f Kd=%.3f\n", SPEED_KP, SPEED_KI, SPEED_KD);
-  Serial.println("\nCommands: 'm' = motor test, 'e' = encoder test, 'p' = PID test, 'g' = go 10cm");
+  Serial.println("\nCommands:");
+  Serial.println("  'm' = motor test, 'e' = encoder test, 'p' = PID test");
+  Serial.println("  'g' = go 25cm, 't' = turn 90°, 's' = stop");
+  Serial.println("  'i' = print IMU data, 'y' = calibrate gyro, 'r' = reset heading");
 }
 
 // ============================================================================
@@ -646,9 +1009,13 @@ void setup()
 // ============================================================================
 void loop()
 {
-  #if AUTO_DEMO
-    autoDemoLoop();
-  #endif
+#if AUTO_DEMO
+  autoDemoLoop();
+#endif
+
+#if TURN_DEMO
+  turnDemoLoop();
+#endif
 
   // Check for serial commands
   if (Serial.available())
@@ -676,6 +1043,16 @@ void loop()
       stopMotors();
       Serial.println("Motors stopped");
       break;
+    case 'i':
+      updateIMU();
+      printIMUData();
+      break;
+    case 'y':
+      calibrateGyro();
+      break;
+    case 'r':
+      resetIMUHeading();
+      break;
     }
   }
 
@@ -686,6 +1063,14 @@ void loop()
     float dt = (millis() - lastOdom) / 1000.0;
     updateOdometry(dt);
     lastOdom = millis();
+  }
+
+  // Update IMU in background
+  static uint32_t lastIMU = millis();
+  if (millis() - lastIMU >= 100) // Update at 10Hz
+  {
+    updateIMU();
+    lastIMU = millis();
   }
 
   delay(1);
