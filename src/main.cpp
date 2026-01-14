@@ -24,7 +24,7 @@ void setup()
 
 void loop()
 {
-  moveForwardCmClean(50.0f, 250.0f);
+  autoDemoLoop();
   delay(2000);
 }
 
