@@ -37,5 +37,5 @@ constexpr float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR * QUAD_FACTOR;
 constexpr float METERS_PER_COUNT = (WHEEL_DIAMETER_M * PI_F) / COUNTS_PER_REV;
 
 // Distance calibration knob (tune once)
-constexpr float DIST_SCALE = 0.9f; // Calculated by theoretical / measured
+constexpr float DIST_SCALE = 1.05f; // Calculated by theoretical / measured
 inline float metersPerCountCal() { return METERS_PER_COUNT * DIST_SCALE; }

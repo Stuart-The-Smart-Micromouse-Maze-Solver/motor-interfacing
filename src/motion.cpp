@@ -6,8 +6,8 @@
 #include "control.h"
 
 // Your speed PID constants
-static PID leftPID  = {1.0f, 0.2f, 0.00f, 0, 0, 40.0f, 0};
-static PID rightPID = {1.0f, 0.2f, 0.00f, 0, 0, 40.0f, 0};
+static PID leftPID  = {1.0f, 0.15f, 0.00f, 0, 0, 40.0f, 0};
+static PID rightPID = {1.0f, 0.15f, 0.00f, 0, 0, 40.0f, 0};
 
 void moveForwardCmClean(float distanceCm, float speedRPM)
 {
@@ -17,7 +17,7 @@ void moveForwardCmClean(float distanceCm, float speedRPM)
   const float RAMP_UP_CM = 4.0f;
   const float RAMP_DOWN_CM = 10.0f;
   const float MIN_RPM = 60.0f;
-  const float STOP_TOL_CM = 0.15f;
+  const float STOP_TOL_CM = 0.6f;
 
   // smoother steering
   const float HEADING_KP = 1.2f; //lower = reduces how hard it reacts
@@ -128,7 +128,7 @@ void autoDemoLoop()
   static bool inRest = false;
   static uint32_t restStart = 0;
 
-  const float SPEED_RPM = 200.0f;
+  const float SPEED_RPM = 220.0f;
   const uint32_t REST_MS = 10000UL;
 
   if (!inRest) {
