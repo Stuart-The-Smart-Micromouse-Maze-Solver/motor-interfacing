@@ -24,7 +24,18 @@ void setup()
 
 void loop()
 {
-  autoDemoLoop();
   delay(2000);
+  moveForwardCmClean(18.0f, 200.0f);
+  delay(1000);
+  turnDegreesGyro(90.0f, 150.0f);
+  delay(1000);
+  moveForwardCmClean(36.0f, 200.0f);
+  delay(1000);
+  turnDegreesGyro(-90.0f, 150.0f);
+  delay(1000);
+  moveForwardCmClean(18.0f, 200.0f);
+  delay(2000);
+  turnDegreesGyro(180.0f, 150.0f);
+  delay(10000);
 }
 
