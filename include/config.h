@@ -21,8 +21,11 @@ constexpr int ENC_D = 2;
 // PWM Configuration
 constexpr int PWM_FREQ = 20000;
 constexpr int PWM_RESOLUTION = 8;
-constexpr int PWM_CH_LEFT = 0;
-constexpr int PWM_CH_RIGHT = 1;
+
+const int PWM_CH_L1 = 0; // AIN1
+const int PWM_CH_L2 = 1; // AIN2
+const int PWM_CH_R1 = 2; // BIN1
+const int PWM_CH_R2 = 3; // BIN2
 
 // ================= Robot constants =================
 constexpr float PI_F = 3.14159265358979323846f;
@@ -37,5 +40,5 @@ constexpr float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR * QUAD_FACTOR;
 constexpr float METERS_PER_COUNT = (WHEEL_DIAMETER_M * PI_F) / COUNTS_PER_REV;
 
 // Distance calibration knob (tune once)
-constexpr float DIST_SCALE = 1.05f; // Calculated by theoretical / measured
+constexpr float DIST_SCALE = 1.0f; // Calculated by theoretical / measured
 inline float metersPerCountCal() { return METERS_PER_COUNT * DIST_SCALE; }

@@ -1,43 +1,46 @@
 #include "config.h"
 #include "motors.h"
 
-Motor leftMotor  = {PWM_CH_LEFT,  AIN1, AIN2, 0, 0};
-Motor rightMotor = {PWM_CH_RIGHT, BIN1, BIN2, 0, 0};
+Motor leftMotor  = { AIN1, AIN2, PWM_CH_L1, PWM_CH_L2, 0, 0.0f };
+Motor rightMotor = { BIN1, BIN2, PWM_CH_R1, PWM_CH_R2, 0, 0.0f };
 
 void motorsInit()
 {
   pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
   pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
-  digitalWrite(AIN1, LOW); digitalWrite(AIN2, LOW);
-  digitalWrite(BIN1, LOW); digitalWrite(BIN2, LOW);
 
   pinMode(STBY, OUTPUT);
   digitalWrite(STBY, HIGH);
 
-  ledcSetup(PWM_CH_LEFT,  PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_RIGHT, PWM_FREQ, PWM_RESOLUTION);
+  // Setup PWM channels
+  ledcSetup(PWM_CH_L1, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(PWM_CH_L2, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(PWM_CH_R1, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(PWM_CH_R2, PWM_FREQ, PWM_RESOLUTION);
 
-  // Your wiring: PWM on AIN1/BIN1
-  ledcAttachPin(AIN1, PWM_CH_LEFT);
-  ledcAttachPin(BIN1, PWM_CH_RIGHT);
+  // Attach channels to pins
+  ledcAttachPin(AIN1, PWM_CH_L1);
+  ledcAttachPin(AIN2, PWM_CH_L2);
+  ledcAttachPin(BIN1, PWM_CH_R1);
+  ledcAttachPin(BIN2, PWM_CH_R2);
+
+  stopMotors();
 }
 
-void setMotorCommand(Motor* motor, int cmd)
+void setMotorCommand(Motor *m, int cmd)
 {
   cmd = constrain(cmd, -255, 255);
-  motor->command = cmd;
+  m->command = cmd;
 
   if (cmd > 0) {
-    digitalWrite(motor->pin2, LOW);
-    // PWM is on pin1 (attached), just drive the duty
-    ledcWrite(motor->pwmChannel, cmd);
+    ledcWrite(m->chFwd, cmd);
+    ledcWrite(m->chRev, 0);
   } else if (cmd < 0) {
-    // Reverse with your wiring = “PWM + braking mix”, but works for now
-    digitalWrite(motor->pin2, HIGH);
-    ledcWrite(motor->pwmChannel, -cmd);
+    ledcWrite(m->chFwd, 0);
+    ledcWrite(m->chRev, -cmd);
   } else {
-    ledcWrite(motor->pwmChannel, 0);
-    digitalWrite(motor->pin2, LOW);
+    ledcWrite(m->chFwd, 0);
+    ledcWrite(m->chRev, 0);
   }
 }
 
@@ -47,15 +50,16 @@ void stopMotors()
   setMotorCommand(&rightMotor, 0);
 }
 
+// TB6612 short-brake: IN1=IN2=HIGH (same for B side)
+// With PWM pins: just drive both channels at full duty.
 void brakeStop(uint32_t ms)
 {
-  ledcWrite(PWM_CH_LEFT, 255);
-  ledcWrite(PWM_CH_RIGHT, 255);
+  const int FULL = (1 << PWM_RESOLUTION) - 1; // 255 for 8-bit
 
-  digitalWrite(AIN1, HIGH);
-  digitalWrite(AIN2, HIGH);
-  digitalWrite(BIN1, HIGH);
-  digitalWrite(BIN2, HIGH);
+  ledcWrite(leftMotor.chFwd,  FULL);
+  ledcWrite(leftMotor.chRev,  FULL);
+  ledcWrite(rightMotor.chFwd, FULL);
+  ledcWrite(rightMotor.chRev, FULL);
 
   delay(ms);
   stopMotors();

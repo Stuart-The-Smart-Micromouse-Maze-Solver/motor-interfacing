@@ -264,7 +264,7 @@ void turnDegreesGyro(float angleDeg, float turnSpeedRPM)
   const float MIN_TURN_RPM        = 25.0f;  // must overcome stiction
   const float MIN_ACTIVE_DEG      = 8.0f;   // below this, allow RPM to drop (prevents hunting)
 
-  const float TURN_BALANCE = 0.02f; // bias between left/right to keep it centered
+  const float TURN_BALANCE = 0.03f; // bias between left/right to keep it centered
 
   bool turnRight = (angleDeg > 0);
   float targetDeg = fabs(angleDeg);
@@ -326,7 +326,7 @@ void turnDegreesGyro(float angleDeg, float turnSpeedRPM)
       rpmCmd = MIN_TURN_RPM;
     }
 
-    // optional proportional on remaining (keeps it responsive)
+    // optional proportional on remaining
     float p = TURN_KP_RPM_PER_DEG * remaining;
     rpmCmd = min(rpmCmd, p);
     rpmCmd = min(rpmCmd, turnSpeedRPM);
