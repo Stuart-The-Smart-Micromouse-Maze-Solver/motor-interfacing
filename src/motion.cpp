@@ -31,7 +31,7 @@ static uint32_t turnStartMs = 0;
 
 static const float TURN_TOL_DEG = 1.5f;        // 
 static const uint32_t TURN_MIN_MS = 120;       // avoid instant-stop from noise
-static const uint32_t TURN_TIMEOUT_MS = 2500;  // safety
+static const uint32_t TURN_TIMEOUT_MS = 6000;  // idk if this is too much
 
 static uint32_t waitUntilMs = 0;
 
@@ -86,7 +86,7 @@ public:
     distancePrevError(0.0f), encoderPrevError(0.0f),
     distanceIntegral(0.0f), encoderIntegral(0.0f),
     basePWM_forward(130.0f), 
-    turnKp(2.0f), turnKi(0.0f), turnKd(0.08f)
+    turnKp(0.0f), turnKi(0.0f), turnKd(0.01f)
   
     {}
 
@@ -185,9 +185,9 @@ public:
   int dir = (err > 0) ? +1 : -1;
 
   // Base + correction magnitude
-  const int PWM_TURN_BASE = 140;   // tune (must turn reliably)
-  const int PWM_TURN_MIN  = 120;
-  const int PWM_TURN_MAX  = 160;
+  const int PWM_TURN_BASE = 160;   // This works to break friction
+  const int PWM_TURN_MIN  = 140;
+  const int PWM_TURN_MAX  = 180;  // not sure if too high
 
   float mag = PWM_TURN_BASE + fabsf(u);
   mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
@@ -196,7 +196,7 @@ public:
   long dL = (long)readEncoderCounts(leftEncoder)  - turnStartL;
   long dR = (long)readEncoderCounts(rightEncoder) - turnStartR;
   float balanceErr = (float)(dL + dR);    // 
-  float balanceKp  = 0.8f;               // tune or set 0 to disable
+  float balanceKp  = 0.0f;               // 0 disables this correction
   float balanceCorr = balanceKp * balanceErr;
 
   int leftCmd  = (int)constrain((-dir * mag) - balanceCorr, -255.0f, 255.0f);
