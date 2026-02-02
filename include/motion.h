@@ -7,13 +7,14 @@ void motionInit();
 // Call every loop (executes the active command)
 void motionUpdate(float dt, float leftDist=-1, float frontDist=-1, float rightDist=-1);
 
-// Command API (your future algorithm calls these)
-bool motionMoveForwardCells(int cells);
-bool motionMoveForwardCm(float cm);
+// Command API
+bool MoveForwardCells(int cells);
+bool MoveForwardCm(float cm);
+bool TurnRight();   
+bool TurnLeft();    
+bool Turn180();  
+bool WaitMs(uint16_t ms);   
 
-bool motionTurnDeg(float deg);   
-bool motionTurnLeft90();
-bool motionTurnRight90();
 
 // Status
 bool motionIsBusy();

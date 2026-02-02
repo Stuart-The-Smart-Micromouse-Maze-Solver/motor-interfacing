@@ -27,25 +27,20 @@ void setup()
 
 void loop()
 {
-  static uint32_t lastUs = micros();
-  uint32_t nowUs = micros();
-  float dt = (nowUs - lastUs) / 1e6f;
-  lastUs = nowUs;
+  static uint32_t lastMs = millis();
+  uint32_t nowMs = millis();
+  float dt = (nowMs - lastMs) / 1e6f;
+  lastMs = nowMs;
 
+  static bool started = false;
+  if (!started) {
+  MoveForwardCells(1);
+  WaitMs(500);
+
+  TurnRight();
+  WaitMs(150);
+
+  started = true;
+  }
   motionUpdate(dt, -1, -1, -1);
-
-  enum { START_FWD, WAIT_FWD, START_TURN, WAIT_TURN } static s = START_FWD;
-
-  if (s == START_FWD) {
-    if (motionMoveForwardCells(1)) s = WAIT_FWD;
-  }
-  else if (s == WAIT_FWD) {
-    if (!motionIsBusy()) s = START_TURN;
-  }
-  else if (s == START_TURN) {
-    if (motionTurnDeg(90.0f)) s = WAIT_TURN; // right
-  }
-  else if (s == WAIT_TURN) {
-    if (!motionIsBusy()) s = START_FWD;
-  }
 }

@@ -6,7 +6,7 @@
 #include "gyro_heading.h"
 
 // -------------------- motion state machine --------------------
-enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN};
+enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN, MOTION_WAIT};
 static MotionState state = MOTION_IDLE;
 
 static long startL = 0;
@@ -33,12 +33,49 @@ static const float TURN_TOL_DEG = 1.5f;        //
 static const uint32_t TURN_MIN_MS = 120;       // avoid instant-stop from noise
 static const uint32_t TURN_TIMEOUT_MS = 2500;  // safety
 
+static uint32_t waitUntilMs = 0;
+
+
 static inline float wrap360(float h)
 {
   while (h >= 360.0f) h -= 360.0f;
   while (h < 0.0f)    h += 360.0f;
   return h;
 }
+
+// -------------------- command queue --------------------
+enum CmdType { CMD_FWD_CELLS, CMD_FWD_CM, CMD_TURN_DEG, CMD_WAIT_MS };
+
+struct MotionCmd {
+  CmdType type;
+  int cells;
+  float cm;
+  float deg;
+  uint32_t waitMs;
+};
+
+static const int CMD_Q_LEN = 8;
+static MotionCmd cmdQ[CMD_Q_LEN];
+static int qHead = 0, qTail = 0, qCount = 0;
+
+static bool enqueueCmd(const MotionCmd &c)
+{
+  if (qCount >= CMD_Q_LEN) return false;
+  cmdQ[qTail] = c;
+  qTail = (qTail + 1) % CMD_Q_LEN;
+  qCount++;
+  return true;
+}
+
+static bool dequeueCmd(MotionCmd &out)
+{
+  if (qCount <= 0) return false;
+  out = cmdQ[qHead];
+  qHead = (qHead + 1) % CMD_Q_LEN;
+  qCount--;
+  return true;
+}
+
 
 // -------------------- PID controller --------------------
 class SystemPID {
@@ -148,9 +185,9 @@ public:
   int dir = (err > 0) ? +1 : -1;
 
   // Base + correction magnitude
-  const int PWM_TURN_BASE = 120;   // tune (must turn reliably)
-  const int PWM_TURN_MIN  = 110;
-  const int PWM_TURN_MAX  = 170;
+  const int PWM_TURN_BASE = 140;   // tune (must turn reliably)
+  const int PWM_TURN_MIN  = 120;
+  const int PWM_TURN_MAX  = 160;
 
   float mag = PWM_TURN_BASE + fabsf(u);
   mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
@@ -267,14 +304,42 @@ bool motionTurnDeg(float deg)
   return true;
 }
 
-bool motionTurnLeft90()  { return motionTurnDeg(-90.0f); }
-bool motionTurnRight90() { return motionTurnDeg(+90.0f); }
+static void tryStartNextCmd()
+{
+  if (state != MOTION_IDLE) return;
+  if (qCount == 0) return;
+
+  MotionCmd c;
+  if (!dequeueCmd(c)) return;
+
+  bool ok = false;
+  switch (c.type) {
+    case CMD_FWD_CELLS: ok = motionMoveForwardCells(c.cells); break;
+    case CMD_FWD_CM:    ok = motionMoveForwardCm(c.cm);       break;
+    case CMD_TURN_DEG:  ok = motionTurnDeg(c.deg);            break;
+
+    case CMD_WAIT_MS:
+      stopMotors();
+      waitUntilMs = millis() + (uint16_t)c.waitMs;
+      state = MOTION_WAIT;
+      ok = true;
+      break;
+  }
+
+  if (!ok) {
+    stopMotors();
+    state = MOTION_IDLE;
+  }
+}
 
 void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
 {
   gyroUpdate();
 
-  if (state == MOTION_IDLE) return;
+  if (state == MOTION_IDLE) {
+    tryStartNextCmd();
+    if (state == MOTION_IDLE) return; // still nothing to do
+  }
 
   // Optional early stop if you have front distance later
   if (frontDist >= 0 && frontDist < FRONT_STOP_CM) {
@@ -282,6 +347,15 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
     motionStop();
     return;
   }
+
+    if (state == MOTION_WAIT) {
+      stopMotors();
+      if ((int32_t)(millis() - waitUntilMs) >= 0) {
+      state = MOTION_IDLE; 
+      }
+    return;
+    }
+
 
   if (state == MOTION_FORWARD) {
     long prog = avgProgressCounts();
@@ -316,3 +390,54 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
     return;
   }
 }
+
+bool MoveForwardCells(int cells)
+{
+  bool ok = enqueueCmd({CMD_FWD_CELLS, cells, 0.0f, 0.0f, 0});
+  tryStartNextCmd(); // start immediately if idle
+  return ok;
+}
+
+bool MoveForwardCm(float cm)
+{
+  MotionCmd c;
+  c.type = CMD_FWD_CM;
+  c.cells = 0;
+  c.cm = cm;
+  c.deg = 0.0f;
+
+  bool ok = enqueueCmd(c);
+  tryStartNextCmd();
+  return ok;
+}
+
+bool TurnRight()
+{
+  bool ok = enqueueCmd({CMD_TURN_DEG, 0, 0.0f, 90.0f,0});
+  tryStartNextCmd();
+  return ok;
+}
+
+bool TurnLeft()
+{
+  bool ok = enqueueCmd({CMD_TURN_DEG, 0, 0.0f, -90.0f,0});
+  tryStartNextCmd();
+  return ok;
+}
+
+bool Turn180()
+{
+  bool ok = enqueueCmd({CMD_TURN_DEG, 0, 0.0f, 180.0f,0});
+  tryStartNextCmd();
+  return ok;
+}
+
+bool WaitMs(uint16_t ms)
+{
+  bool ok = enqueueCmd({CMD_WAIT_MS, 0, 0.0f, 0.0f, ms});
+  tryStartNextCmd();
+  return ok;
+}
+
+
+
