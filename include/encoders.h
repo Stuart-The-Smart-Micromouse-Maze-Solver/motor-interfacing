@@ -1,15 +1,19 @@
 #pragma once
 #include <Arduino.h>
+#include "config.h"
 
 struct Encoder {
-  volatile int64_t counts;
-  int64_t prevCounts;
-  uint32_t prevTime;
+  volatile int32_t counts;
 };
 
 extern Encoder leftEncoder;
 extern Encoder rightEncoder;
 
 void encodersInit();
-int64_t readEncoderCounts(const Encoder& e);
-void resetEncoderCounts();
+
+int64_t readEncoderCounts(const Encoder& encoder);
+
+// These MUST be declared so main.cpp can attachInterrupt() to them
+void IRAM_ATTR leftEncoderISR();
+void IRAM_ATTR rightEncoderISR();
+

@@ -1,67 +1,20 @@
-#include "config.h"
+#include <Arduino.h>
 #include "encoders.h"
+#include "config.h"
 
-Encoder leftEncoder  = {0, 0, 0};
-Encoder rightEncoder = {0, 0, 0};
+// Define the globals (IMPORTANT: this allocates them)
+Encoder leftEncoder  = {0};
+Encoder rightEncoder = {0};
 
-// Shared mux for safe 64-bit access
-portMUX_TYPE encMux = portMUX_INITIALIZER_UNLOCKED;
+// Protect 64-bit shared variable access between ISR and main loop
+static portMUX_TYPE encMux = portMUX_INITIALIZER_UNLOCKED;
 
-int64_t readEncoderCounts(const Encoder& e)
+int64_t readEncoderCounts(const Encoder& encoder)
 {
-  portENTER_CRITICAL(&encMux);
-  int64_t c = e.counts;
-  portEXIT_CRITICAL(&encMux);
-  return c;
-}
-
-void resetEncoderCounts()
-{
-  portENTER_CRITICAL(&encMux);
-  leftEncoder.counts = 0;
-  rightEncoder.counts = 0;
-  portEXIT_CRITICAL(&encMux);
-}
-
-// Quadrature ISRs (same logic you already had)
-static void IRAM_ATTR leftEncoderISR_A()
-{
-  int a = digitalRead(ENC_A);
-  int b = digitalRead(ENC_B);
-
-  portENTER_CRITICAL_ISR(&encMux);
-  leftEncoder.counts += (a == b) ? -1 : 1;
-  portEXIT_CRITICAL_ISR(&encMux);
-}
-
-static void IRAM_ATTR leftEncoderISR_B()
-{
-  int a = digitalRead(ENC_A);
-  int b = digitalRead(ENC_B);
-
-  portENTER_CRITICAL_ISR(&encMux);
-  leftEncoder.counts += (a != b) ? -1 : 1;
-  portEXIT_CRITICAL_ISR(&encMux);
-}
-
-static void IRAM_ATTR rightEncoderISR_C()
-{
-  int c = digitalRead(ENC_C);
-  int d = digitalRead(ENC_D);
-
-  portENTER_CRITICAL_ISR(&encMux);
-  rightEncoder.counts += (c == d) ? 1 : -1;
-  portEXIT_CRITICAL_ISR(&encMux);
-}
-
-static void IRAM_ATTR rightEncoderISR_D()
-{
-  int c = digitalRead(ENC_C);
-  int d = digitalRead(ENC_D);
-
-  portENTER_CRITICAL_ISR(&encMux);
-  rightEncoder.counts += (c != d) ? 1 : -1;
-  portEXIT_CRITICAL_ISR(&encMux);
+  noInterrupts();
+  int32_t c = encoder.counts;
+  interrupts();
+  return (int64_t)c;
 }
 
 void encodersInit()
@@ -71,13 +24,32 @@ void encodersInit()
   pinMode(ENC_C, INPUT_PULLUP);
   pinMode(ENC_D, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(ENC_A), leftEncoderISR_A, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENC_B), leftEncoderISR_B, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENC_C), rightEncoderISR_C, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENC_D), rightEncoderISR_D, CHANGE);
+  // Trigger on A and C rising; use B and D to decide direction
+  attachInterrupt(digitalPinToInterrupt(ENC_A), leftEncoderISR,  RISING);
+  attachInterrupt(digitalPinToInterrupt(ENC_C), rightEncoderISR, RISING);
+}
 
-  leftEncoder.prevTime  = micros();
-  rightEncoder.prevTime = micros();
-  leftEncoder.prevCounts  = readEncoderCounts(leftEncoder);
-  rightEncoder.prevCounts = readEncoderCounts(rightEncoder);
+void IRAM_ATTR leftEncoderISR()
+{
+  bool A = digitalRead(ENC_A);
+  bool B = digitalRead(ENC_B);
+
+  portENTER_CRITICAL_ISR(&encMux);
+  if (A == B) leftEncoder.counts--;
+  else        leftEncoder.counts++;
+  portEXIT_CRITICAL_ISR(&encMux);
+}
+
+void IRAM_ATTR rightEncoderISR()
+{
+  bool C = digitalRead(ENC_C);
+  bool D = digitalRead(ENC_D);
+
+  portENTER_CRITICAL_ISR(&encMux);
+  // Goal: when robot drives forward, BOTH left & right counts increase.
+  if (C == D) rightEncoder.counts++;
+  else        rightEncoder.counts--;
+  portEXIT_CRITICAL_ISR(&encMux);
+
+  // If forward makes right counts DECREASE, flip the ++/-- above.
 }

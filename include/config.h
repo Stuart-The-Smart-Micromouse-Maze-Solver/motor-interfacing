@@ -27,18 +27,14 @@ const int PWM_CH_L2 = 1; // AIN2
 const int PWM_CH_R1 = 2; // BIN1
 const int PWM_CH_R2 = 3; // BIN2
 
-// ================= Robot constants =================
-constexpr float PI_F = 3.14159265358979323846f;
 
-constexpr int   ENCODER_PPR = 7;
-constexpr float GEAR_RATIO = 20.0f;
-constexpr float WHEEL_DIAMETER_M = 0.032f;
-constexpr float WHEEL_BASE_M = 0.103f;
-constexpr float QUAD_FACTOR = 1.0f;
+// Empirically determined constants: 
 
-constexpr float COUNTS_PER_REV = GEAR_RATIO * ENCODER_PPR * QUAD_FACTOR;
-constexpr float METERS_PER_COUNT = (WHEEL_DIAMETER_M * PI_F) / COUNTS_PER_REV;
+const float COUNTS_PER_CM = 34.3f; 
+const float CM_PER_COUNT = 0.302f; //this was 0.33056 but changed to 0.2667
+const int COUNTS_PER_CELL = 60; //
+const int SPR = 34.3; // counts per wheel revolution
 
-// Distance calibration knob (tune once)
-constexpr float DIST_SCALE = 1.0f; // Calculated by theoretical / measured
-inline float metersPerCountCal() { return METERS_PER_COUNT * DIST_SCALE; }
+const float WHEEL_DIAMETER_CM = 3.3f;
+const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.1416f;
+

@@ -1,355 +1,318 @@
-#include "config.h"
+#include <Arduino.h>
 #include "motion.h"
-#include "motors.h"
 #include "encoders.h"
+#include "motors.h"
+#include "config.h"
 #include "gyro_heading.h"
-#include "control.h"
 
-//PID constants for motion control
-static PID leftPID  = {1.00f, 0.00f, 0.0015f, 0, 0, 40.0f, 0};
-static PID rightPID = {1.00f, 0.00f, 0.0015f, 0, 0, 40.0f, 0};
+// -------------------- motion state machine --------------------
+enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN};
+static MotionState state = MOTION_IDLE;
 
-// PID constants for turning control
-static PID leftTurnPID  = {0.80f, 0.2f, 0.000f, 0, 0, 20.0f, 0};
-static PID rightTurnPID = {0.80f, 0.2f, 0.000f, 0, 0, 20.0f, 0};
+static long startL = 0;
+static long startR = 0;
+static long targetCounts = 0;
+static uint32_t moveStartMs = 0;
 
-void moveForwardCmClean(float distanceCm, float speedRPM)
+static const int STOP_TOL_COUNTS = 1;
+static const float FRONT_STOP_CM = 6.0f;
+
+//---added rn
+static const int PWM_KICK = 200;          // confirmed 200 works
+static const int PWM_MAX  = 190;          // tune
+static const int PWM_MIN_RUN = 150;       // above stall (tune)
+static const float KP_POS = 1.75f;        // speed proportional to distance remaining
+static const uint32_t KICK_MS = 120; 
+
+static float turnTargetHeading = 0.0f;
+static long  turnStartL = 0;
+static long  turnStartR = 0;
+static uint32_t turnStartMs = 0;
+
+static const float TURN_TOL_DEG = 1.5f;        // 
+static const uint32_t TURN_MIN_MS = 120;       // avoid instant-stop from noise
+static const uint32_t TURN_TIMEOUT_MS = 2500;  // safety
+
+static inline float wrap360(float h)
 {
-  const uint32_t TIMEOUT_MS = 8000;
-  const uint32_t LOOP_MS = 10;
+  while (h >= 360.0f) h -= 360.0f;
+  while (h < 0.0f)    h += 360.0f;
+  return h;
+}
 
-  const float RAMP_UP_CM = 4.0f;
-  const float RAMP_DOWN_CM = 10.0f;
-  const float MIN_RPM = 60.0f;
-  const float STOP_TOL_CM = 0.5f;
+// -------------------- PID controller --------------------
+class SystemPID {
+public:
+  SystemPID()
+  : distanceKp(0.25f), distanceKi(0.0f), distanceKd(0.0f),
+    encoderKp(0.15f), encoderKi(0.0f), encoderKd(0.0f),
+    distancePrevError(0.0f), encoderPrevError(0.0f),
+    distanceIntegral(0.0f), encoderIntegral(0.0f),
+    basePWM_forward(130.0f), 
+    turnKp(2.0f), turnKi(0.0f), turnKd(0.08f)
+  
+    {}
 
-  // smoother steering
-  const float HEADING_KP = 1.2f; //lower = reduces how hard it reacts
-  const float HEADING_DEADBAND_DEG = 1.0f; // smaller = more sensitive (0.4-1.0)
-  const float HEADING_CORR_CLAMP = 30.0f; // steering authority -> too high = sharp corrections (25-60)
-  const float CORR_ALPHA = 0.05f; // big = faster response, but more jitter
-
-  const float DRIFT_GAIN_RPM_PER_CM = 18.0f;
-
-  int64_t startLeft  = readEncoderCounts(leftEncoder);
-  int64_t startRight = readEncoderCounts(rightEncoder);
-
-  resetPID(&leftPID);
-  resetPID(&rightPID);
-
-  leftEncoder.prevTime  = micros();
-  rightEncoder.prevTime = micros();
-  leftEncoder.prevCounts  = startLeft;
-  rightEncoder.prevCounts = startRight;
-
-  uint32_t startTime  = millis();
-  uint32_t lastUpdate = millis();
-
-  // stabilize heading
-  for (int i = 0; i < 5; i++) { gyroUpdate(); delay(5); }
-  float targetHeading = gyroHeadingDeg();
-
-  float corrRPM_f = 0.0f;
-
-  // kick
-  setMotorCommand(&leftMotor, 140);
-  setMotorCommand(&rightMotor, 140);
-  delay(70);
-
-  while (true)
+  void resetTurn()
   {
-    if (millis() - startTime > TIMEOUT_MS) break;
+    turnPrevError = 0.0f;
+    turnIntegral = 0.0f;
+  }
 
-    if (millis() - lastUpdate < LOOP_MS) { delay(1); continue; }
-    float dt = (millis() - lastUpdate) / 1000.0f;
-    lastUpdate = millis();
+  void reset()
+  {
+    distancePrevError = 0;
+    encoderPrevError  = 0;
+    distanceIntegral  = 0;
+    encoderIntegral   = 0;
+  }
 
-    gyroUpdate();
+  void update(float dt, float leftDistance, float frontDistance, float rightDistance, long remainingCounts)
+  {
+    if (dt <= 0.0f) dt = 1e-3f;
 
-    int64_t lc = readEncoderCounts(leftEncoder);
-    int64_t rc = readEncoderCounts(rightEncoder);
-
-    float leftDistCm  = (lc - startLeft)  * metersPerCountCal() * 100.0f;
-    float rightDistCm = (rc - startRight) * metersPerCountCal() * 100.0f;
-
-    float avgDistCm = 0.5f * (leftDistCm + rightDistCm);
-    float remaining = distanceCm - avgDistCm;
-
-    if (remaining <= STOP_TOL_CM) break;
-
-    float baseRPM = speedRPM;
-
-    // baseRPM -> how fast we want to go before corrections
-
-    if (avgDistCm < RAMP_UP_CM) {
-      float s = avgDistCm / max(0.001f, RAMP_UP_CM);
-      baseRPM = MIN_RPM + s * (speedRPM - MIN_RPM);
-    }
-    if (remaining < RAMP_DOWN_CM) {
-      float s = remaining / max(0.001f, RAMP_DOWN_CM);
-      float downRPM = MIN_RPM + s * (speedRPM - MIN_RPM);
-      baseRPM = min(baseRPM, downRPM);
-    }
-    baseRPM = constrain(baseRPM, MIN_RPM, speedRPM);
-
-    float corrRaw = 0.0f;
-
-    if (gyroIsValid()) {
-      float hErr = angleDiffDeg(targetHeading, gyroHeadingDeg());
-      if (fabs(hErr) < HEADING_DEADBAND_DEG) hErr = 0.0f;
-
-      corrRaw = HEADING_KP * hErr;
-      corrRaw = constrain(corrRaw, -HEADING_CORR_CLAMP, HEADING_CORR_CLAMP);
+    // If sensors missing, disable wall correction
+    if (leftDistance == -1 && rightDistance == -1) {
+      leftDistance = 0;
+      rightDistance = 0;
     } else {
-      float driftCm = leftDistCm - rightDistCm;
-      corrRaw = constrain(driftCm * DRIFT_GAIN_RPM_PER_CM,
-                          -HEADING_CORR_CLAMP, HEADING_CORR_CLAMP);
+      if (leftDistance == -1)  leftDistance  = 75.0f;
+      if (rightDistance == -1) rightDistance = 79.0f;
     }
 
-    corrRPM_f += CORR_ALPHA * (corrRaw - corrRPM_f);
+    // --- Side (wall) correction ---
+    float currentPosition = constrain(leftDistance, 0, 80) - constrain(rightDistance, 0, 80);
+    float distanceError = 0.0f - currentPosition;
+    distanceIntegral += distanceError * dt;
+    float distanceDerivative = (distanceError - distancePrevError) / dt;
+    distancePrevError = distanceError;
 
-    float leftTargetRPM  = baseRPM - corrRPM_f;
-    float rightTargetRPM = baseRPM + corrRPM_f;
+    float sideCorrection = (distanceKp * distanceError) + (distanceKi * distanceIntegral) + (distanceKd * distanceDerivative);
 
-    leftTargetRPM  = constrain(leftTargetRPM,  0.0f, speedRPM * 1.4f);
-    rightTargetRPM = constrain(rightTargetRPM, 0.0f, speedRPM * 1.4f);
-
-    updateMotorSpeeds(dt);
-    setMotorSpeedRPM(&leftMotor, &leftEncoder, &leftPID, leftTargetRPM);
-    setMotorSpeedRPM(&rightMotor, &rightEncoder, &rightPID, rightTargetRPM);
-  }
-
-  brakeStop(140);
-  delay(120);
-}
-
-void moveBackwardCmClean(float distanceCm, float speedRPM)
-{
-  const uint32_t TIMEOUT_MS = 6000;
-  const uint32_t LOOP_MS    = 10;
-
-  const float RAMP_UP_CM   = 3.0f;
-  const float RAMP_DOWN_CM = 4.0f;
-  const float MIN_RPM      = 60.0f;   
-  const float STOP_TOL_CM  = 0.25f;   
-
-  const float HEADING_KP            = 1.2f;
-  const float HEADING_DEADBAND_DEG  = 1.0f;
-  const float HEADING_CORR_CLAMP    = 30.0f;
-  const float CORR_ALPHA            = 0.05f;
-
-  // Reset speed loops
-  resetPID(&leftPID);
-  resetPID(&rightPID);
-
-  // Stabilize gyro and lock current heading as target
-  for (int i = 0; i < 6; i++) { gyroUpdate(); delay(5); }
-  float targetHeading = gyroHeadingDeg();
-
-  int64_t startL = readEncoderCounts(leftEncoder);
-  int64_t startR = readEncoderCounts(rightEncoder);
-
-  leftEncoder.prevTime  = micros();
-  rightEncoder.prevTime = micros();
-  leftEncoder.prevCounts  = startL;
-  rightEncoder.prevCounts = startR;
-
-  float corrFilt = 0.0f;
-
-  uint32_t t0 = millis();
-  uint32_t last = millis();
-
-  while (true)
-  {
-    if (millis() - t0 > TIMEOUT_MS) break;
-
-    if (millis() - last < LOOP_MS) { delay(1); continue; }
-    float dt = (millis() - last) / 1000.0f;
-    last = millis();
-
-    gyroUpdate();
-
-    int64_t lc = readEncoderCounts(leftEncoder);
-    int64_t rc = readEncoderCounts(rightEncoder);
-
-    float leftDistCm  = fabs((lc - startL) * metersPerCountCal() * 100.0f);
-    float rightDistCm = fabs((rc - startR) * metersPerCountCal() * 100.0f);
-    float avgDistCm   = 0.5f * (leftDistCm + rightDistCm);
-
-    float remaining = distanceCm - avgDistCm;
-    if (remaining <= STOP_TOL_CM) break;
-
-    // Base speed profile (positive magnitude)
-    float baseRPMmag = speedRPM;
-
-    if (avgDistCm < RAMP_UP_CM) {
-      float s = avgDistCm / max(0.001f, RAMP_UP_CM);
-      baseRPMmag = MIN_RPM + s * (speedRPM - MIN_RPM);
+    // If walls far / not reliable, ignore side correction
+    if (((int)leftDistance >= 40 || (int)leftDistance == 0) &&
+        ((int)rightDistance >= 40 || (int)rightDistance == 0)) {
+      sideCorrection = 0.0f;
     }
 
-    if (remaining < RAMP_DOWN_CM) {
-      float s = remaining / max(0.001f, RAMP_DOWN_CM);
-      float downRPM = MIN_RPM + s * (speedRPM - MIN_RPM);
-      baseRPMmag = min(baseRPMmag, downRPM);
+    // --- Encoder straightness correction ---
+    long leftCounts  = (long)readEncoderCounts(leftEncoder);
+    long rightCounts = (long)readEncoderCounts(rightEncoder);
+
+    float currentEncoderDiff = (float)((leftCounts - startL) - (rightCounts - startR));
+
+    float encoderError = 0.0f - currentEncoderDiff;
+    encoderIntegral += encoderError * dt;
+    float encoderDerivative = (encoderError - encoderPrevError) / dt;
+    encoderPrevError = encoderError;
+
+    float encoderCorrection = (encoderKp * encoderError) + (encoderKi * encoderIntegral) + (encoderKd * encoderDerivative);
+
+    //float base = basePWM_forward;
+
+    //added rn 
+    float base = KP_POS * (float)remainingCounts; // Proportional control on distance remaining
+    base = constrain(base, (float)PWM_MIN_RUN, (float)PWM_MAX);
+
+    if (millis() - moveStartMs < KICK_MS) {
+      base = PWM_KICK;   // kick
     }
 
-    baseRPMmag = constrain(baseRPMmag, MIN_RPM, speedRPM);
+    float leftPWM  = base + sideCorrection + encoderCorrection;
+    float rightPWM = base - sideCorrection - encoderCorrection;
 
-    // Heading correction
-    float hErr = angleDiffDeg(targetHeading, gyroHeadingDeg());
-    if (fabs(hErr) < HEADING_DEADBAND_DEG) hErr = 0.0f;
 
-    float corrRaw = HEADING_KP * hErr;
-    corrRaw = constrain(corrRaw, -HEADING_CORR_CLAMP, HEADING_CORR_CLAMP);
+    leftPWM  = constrain(leftPWM,  -255.0f, 255.0f);
+    rightPWM = constrain(rightPWM, -255.0f, 255.0f);
 
-    // Smooth steering
-    corrFilt += CORR_ALPHA * (corrRaw - corrFilt);
-
-    // BACKWARD = negative base RPM
-    float baseRPM = -baseRPMmag;
-
-    float leftTargetRPM  = baseRPM - corrFilt;
-    float rightTargetRPM = baseRPM + corrFilt;
-
-    // Update measured RPM and apply speed PID
-    updateMotorSpeeds(dt);
-    setMotorSpeedRPM(&leftMotor,  &leftEncoder,  &leftPID,  leftTargetRPM);
-    setMotorSpeedRPM(&rightMotor, &rightEncoder, &rightPID, rightTargetRPM);
+    setMotorCommand(&leftMotor,  (int)(leftPWM));
+    setMotorCommand(&rightMotor, (int)(rightPWM));
   }
+ 
+  void turnUpdate(float dt, float targetHeadingDeg, long turnStartL, long turnStartR)
+{
+  if (dt <= 0.0f) dt = 1e-3f;
 
-  brakeStop(120);
-  delay(80);
+  float current = gyroHeadingDeg();
+  float err = angleDiffDeg(targetHeadingDeg, current); 
+
+  // PID on heading error
+  turnIntegral += err * dt;
+  turnIntegral = constrain(turnIntegral, -30.0f, 30.0f); // anti-windup
+  
+  float deriv = (err - turnPrevError) / dt;
+  turnPrevError = err;
+
+  float u = turnKp * err + turnKi * turnIntegral + turnKd * deriv;
+
+  int dir = (err > 0) ? +1 : -1;
+
+  // Base + correction magnitude
+  const int PWM_TURN_BASE = 120;   // tune (must turn reliably)
+  const int PWM_TURN_MIN  = 110;
+  const int PWM_TURN_MAX  = 170;
+
+  float mag = PWM_TURN_BASE + fabsf(u);
+  mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
+
+  // Optional encoder balance to keep pivot symmetric
+  long dL = (long)readEncoderCounts(leftEncoder)  - turnStartL;
+  long dR = (long)readEncoderCounts(rightEncoder) - turnStartR;
+  float balanceErr = (float)(dL + dR);    // 
+  float balanceKp  = 0.8f;               // tune or set 0 to disable
+  float balanceCorr = balanceKp * balanceErr;
+
+  int leftCmd  = (int)constrain((-dir * mag) - balanceCorr, -255.0f, 255.0f);
+  int rightCmd = (int)constrain(( dir * mag) + balanceCorr, -255.0f, 255.0f);
+
+  setMotorCommand(&leftMotor, leftCmd);
+  setMotorCommand(&rightMotor, rightCmd);
+}
+  
+  float distanceKp, distanceKi, distanceKd;
+  float encoderKp, encoderKi, encoderKd;
+  float turnKp, turnKi, turnKd;
+
+  float distancePrevError, encoderPrevError;
+  float distanceIntegral, encoderIntegral;
+
+  float turnPrevError = 0.0f;
+  float turnIntegral = 0.0f;
+
+  float basePWM_forward;
+};
+
+static SystemPID PID;
+
+// -------------------- helpers --------------------
+static inline long avgProgressCounts()
+{
+  long currL = (long)readEncoderCounts(leftEncoder);
+  long currR = (long)readEncoderCounts(rightEncoder);
+  long dL = currL - startL;
+  long dR = currR - startR;
+  return (labs(dL) + labs(dR)) / 2;
 }
 
-
-void autoDemoLoop()
+// -------------------- public API --------------------
+void motionInit()
 {
-  static const float seq_cm[] = {18.0f, 36.0f, 54.0f, 72.0f};
-  static const size_t N = sizeof(seq_cm) / sizeof(seq_cm[0]);
-  static size_t idx = 0;
-
-  static bool inRest = false;
-  static uint32_t restStart = 0;
-
-  const float SPEED_RPM = 220.0f;
-  const uint32_t REST_MS = 10000UL;
-
-  if (!inRest) {
-    moveForwardCmClean(seq_cm[idx], SPEED_RPM);
-    stopMotors();
-    inRest = true;
-    restStart = millis();
-    idx = (idx + 1) % N;
-  } else {
-    if (millis() - restStart >= REST_MS) inRest = false;
-  }
+  state = MOTION_IDLE;
 }
 
-void turnDegreesGyro(float angleDeg, float turnSpeedRPM)
+bool motionIsBusy()
 {
-  if (!gyroIsValid()) {
-    Serial.println("Gyro not valid -> cannot do gyro turn");
+  return state != MOTION_IDLE;
+}
+
+void motionStop()
+{
+  stopMotors();
+  state = MOTION_IDLE;
+}
+
+bool motionMoveForwardCells(int cells)
+{
+  if (cells <= 0) return false;
+  if (motionIsBusy()) return false;
+
+  startL = (long)readEncoderCounts(leftEncoder);
+  startR = (long)readEncoderCounts(rightEncoder);
+  targetCounts = (long)cells * (long)COUNTS_PER_CELL;
+
+  PID.reset();
+  moveStartMs = millis();
+  state = MOTION_FORWARD;
+  return true;
+}
+
+bool motionMoveForwardCm(float cm)
+{
+  if (cm <= 0) return false;
+  if (motionIsBusy()) return false;
+
+  long counts = (long)lround(cm / CM_PER_COUNT);
+
+  startL = (long)readEncoderCounts(leftEncoder);
+  startR = (long)readEncoderCounts(rightEncoder);
+  targetCounts = counts;
+
+  PID.reset();
+  moveStartMs = millis();
+  state = MOTION_FORWARD;
+  return true;
+}
+
+bool motionTurnDeg(float deg)
+{
+
+  if (motionIsBusy()) return false;
+  if (!gyroIsValid()) return false;
+
+  float start = gyroHeadingDeg();
+
+  float target = wrap360(start - deg);
+
+  // 0..360
+  while (target >= 360.0f) target -= 360.0f;
+  while (target < 0.0f)    target += 360.0f;
+
+  turnTargetHeading = target;
+  turnStartL = (long)readEncoderCounts(leftEncoder);
+  turnStartR = (long)readEncoderCounts(rightEncoder);
+  turnStartMs = millis();
+
+  PID.resetTurn();
+  state = MOTION_TURN;
+  return true;
+}
+
+bool motionTurnLeft90()  { return motionTurnDeg(-90.0f); }
+bool motionTurnRight90() { return motionTurnDeg(+90.0f); }
+
+void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
+{
+  gyroUpdate();
+
+  if (state == MOTION_IDLE) return;
+
+  // Optional early stop if you have front distance later
+  if (frontDist >= 0 && frontDist < FRONT_STOP_CM) {
+    brakeMotors(30);
+    motionStop();
     return;
   }
 
-  // ---- knobs ----
-  const uint32_t TIMEOUT_MS       = 5000;
-  const uint32_t LOOP_MS          = 10;
+  if (state == MOTION_FORWARD) {
+    long prog = avgProgressCounts();
+    long remaining = targetCounts - prog;
 
-  const float STOP_EARLY_DEG      = 2.0f;   // Stops a bit early to avoid overshoot 
-  const float SLOW1_DEG           = 20.0f;  // at this point starts slowing down
-  const float SLOW2_DEG           = 6.0f;   // on the last segment does min speed
-  const float TURN_KP_RPM_PER_DEG = 3.0f;   // maps "remaining deg" -> RPM command
-
-  const float MIN_TURN_RPM        = 25.0f;  // must overcome stiction
-  const float MIN_ACTIVE_DEG      = 8.0f;   // below this, allow RPM to drop (prevents hunting)
-
-  const float TURN_BALANCE = 0.03f; // bias between left/right to keep it centered
-
-  bool turnRight = (angleDeg > 0);
-  float targetDeg = fabs(angleDeg);
-
-  // Reset TURN speed PIDs (separate from forward)
-  resetPID(&leftTurnPID);
-  resetPID(&rightTurnPID);
-
-  // Init speed measurement state
-  leftEncoder.prevTime    = micros();
-  rightEncoder.prevTime   = micros();
-  leftEncoder.prevCounts  = readEncoderCounts(leftEncoder);
-  rightEncoder.prevCounts = readEncoderCounts(rightEncoder);
-
-  // Stabilize gyro a bit
-  for (int i = 0; i < 10; i++) { gyroUpdate(); delay(5); }
-
-  float prev = gyroHeadingDeg();
-  float turned = 0.0f;
-
-  uint32_t startTime = millis();
-  uint32_t lastUpdate = millis();
-
-  while (true)
-  {
-    if (millis() - startTime > TIMEOUT_MS) {
-      Serial.println("Turn timeout");
-      break;
+    if (prog >= (targetCounts - STOP_TOL_COUNTS)) {
+      brakeMotors(30); //stops the wheels quickly 
+      motionStop();
+      return;
     }
-
-    if (millis() - lastUpdate < LOOP_MS) { delay(1); continue; }
-    float dt = (millis() - lastUpdate) / 1000.0f;
-    lastUpdate = millis();
-
-    gyroUpdate();
-    float cur = gyroHeadingDeg();
-
-    // accumulate delta with wrap handling
-    float d = cur - prev;
-    if (d > 180.0f)  d -= 360.0f;
-    if (d < -180.0f) d += 360.0f;
-
-    turned += fabs(d);
-    prev = cur;
-
-    float remaining = targetDeg - turned;
-    if (remaining <= STOP_EARLY_DEG) break;
-
-    // Build RPM command (fast far, slow near)
-    float rpmCmd;
-
-    if (remaining > SLOW1_DEG) {
-      rpmCmd = turnSpeedRPM;
-    } else if (remaining > SLOW2_DEG) {
-      // proportional-ish ramp down
-      rpmCmd = MIN_TURN_RPM + (remaining / SLOW1_DEG) * (turnSpeedRPM - MIN_TURN_RPM);
-    } else {
-      // creep zone
-      rpmCmd = MIN_TURN_RPM;
-    }
-
-    // optional proportional on remaining
-    float p = TURN_KP_RPM_PER_DEG * remaining;
-    rpmCmd = min(rpmCmd, p);
-    rpmCmd = min(rpmCmd, turnSpeedRPM);
-
-    if (remaining > MIN_ACTIVE_DEG) rpmCmd = max(rpmCmd, MIN_TURN_RPM);
-    else                            rpmCmd = max(rpmCmd, 0.0f);
-
-    float leftTargetRPM  = (turnRight ? +rpmCmd : -rpmCmd);
-    float rightTargetRPM = -leftTargetRPM;
-
-    // Apply trim (keeps spin centered)
-    leftTargetRPM  *= (1.0f + TURN_BALANCE);
-    rightTargetRPM *= (1.0f - TURN_BALANCE);
-
-    updateMotorSpeeds(dt);
-
-    setMotorSpeedRPM(&leftMotor,  &leftEncoder,  &leftTurnPID,  leftTargetRPM);
-    setMotorSpeedRPM(&rightMotor, &rightEncoder, &rightTurnPID, rightTargetRPM);
+    // Drive using PID straightening
+    PID.update(dt, leftDist, frontDist, rightDist, remaining);
+    return; 
   }
 
-  brakeStop(140);
-  stopMotors();
-  delay(120);
+  if (state == MOTION_TURN) {
+    float err = angleDiffDeg(turnTargetHeading, gyroHeadingDeg());
 
-  Serial.printf("Turn done. wanted=%.1f turned=%.1f\n", targetDeg, turned);
+    PID.turnUpdate(dt, turnTargetHeading, turnStartL, turnStartR);
+
+    if ((fabsf(err) < TURN_TOL_DEG) && (millis() - turnStartMs > TURN_MIN_MS)) {
+      brakeMotors(20);
+      motionStop();
+      return;
+    }
+
+    if (millis() - turnStartMs > TURN_TIMEOUT_MS) {
+      brakeMotors(30);
+      motionStop();
+      return;
+    }
+    return;
+  }
 }
