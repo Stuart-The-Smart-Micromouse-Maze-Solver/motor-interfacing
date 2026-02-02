@@ -341,7 +341,7 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
     if (state == MOTION_IDLE) return; // still nothing to do
   }
 
-  // Optional early stop if you have front distance later
+  // when tof front is implemented
   if (frontDist >= 0 && frontDist < FRONT_STOP_CM) {
     brakeMotors(30);
     motionStop();
