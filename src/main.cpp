@@ -27,18 +27,20 @@ void setup()
 
 void loop()
 {
-  static uint32_t lastMs = millis();
-  uint32_t nowMs = millis();
-  float dt = (nowMs - lastMs) / 1e6f;
-  lastMs = nowMs;
+  static uint32_t lastUs = micros();
+  uint32_t mowUs = micros();
+  float dt = (mowUs - lastUs) / 1e6f;
+  lastUs = mowUs;
 
   static bool started = false;
   if (!started) {
-  MoveForwardCells(1);
-  WaitMs(500);
+  MoveForwardCells(2);
+  WaitMs(10000);
 
-  TurnRight();
-  WaitMs(150);
+  MoveForwardCells(4); 
+  WaitMs(10000);
+  // TurnRight();
+  // WaitMs(150);
 
   started = true;
   }

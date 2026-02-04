@@ -19,9 +19,9 @@ static const float FRONT_STOP_CM = 6.0f;
 
 //---added rn
 static const int PWM_KICK = 200;          // confirmed 200 works
-static const int PWM_MAX  = 190;          // tune
+static const int PWM_MAX  = 180;          // tune
 static const int PWM_MIN_RUN = 150;       // above stall (tune)
-static const float KP_POS = 1.75f;        // speed proportional to distance remaining
+static const float KP_POS = 1.50f;        // speed proportional to distance remaining
 static const uint32_t KICK_MS = 120; 
 
 static float turnTargetHeading = 0.0f;
@@ -81,8 +81,8 @@ static bool dequeueCmd(MotionCmd &out)
 class SystemPID {
 public:
   SystemPID()
-  : distanceKp(0.25f), distanceKi(0.0f), distanceKd(0.0f),
-    encoderKp(0.15f), encoderKi(0.0f), encoderKd(0.0f),
+  : distanceKp(0.35f), distanceKi(0.0f), distanceKd(0.0f),
+    encoderKp(0.30f), encoderKi(0.0f), encoderKd(0.0f),
     distancePrevError(0.0f), encoderPrevError(0.0f),
     distanceIntegral(0.0f), encoderIntegral(0.0f),
     basePWM_forward(130.0f), 
@@ -148,8 +148,24 @@ public:
     //float base = basePWM_forward;
 
     //added rn 
-    float base = KP_POS * (float)remainingCounts; // Proportional control on distance remaining
-    base = constrain(base, (float)PWM_MIN_RUN, (float)PWM_MAX);
+    float base = 0;
+    float progress = targetCounts - remainingCounts;
+
+    const float START_COUNTS = 20;
+    const float END_COUNTS = 50; 
+    const float maxpwm = 170;
+
+    if (progress < START_COUNTS) {
+      base = PWM_MIN_RUN + (maxpwm - PWM_MIN_RUN) * progress / START_COUNTS;
+    } else if (remainingCounts < END_COUNTS) {
+      base = PWM_MIN_RUN + (maxpwm - PWM_MIN_RUN) * remainingCounts / END_COUNTS;
+    } else {
+      base = maxpwm;
+    }
+
+
+    // float base = KP_POS * (float)remainingCounts; // Proportional control on distance remaining
+    // base = constrain(base, (float)PWM_MIN_RUN, (float)PWM_MAX);
 
     if (millis() - moveStartMs < KICK_MS) {
       base = PWM_KICK;   // kick
@@ -362,7 +378,7 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
     long remaining = targetCounts - prog;
 
     if (prog >= (targetCounts - STOP_TOL_COUNTS)) {
-      brakeMotors(30); //stops the wheels quickly 
+      brakeMotors(50); //stops the wheels quickly 
       motionStop();
       return;
     }
