@@ -34,10 +34,17 @@ void loop()
 
   static bool started = false;
   if (!started) {
+
+  MoveForwardCells(1);
+  WaitMs(10000);
+
   MoveForwardCells(2);
   WaitMs(10000);
 
   MoveForwardCells(4); 
+  WaitMs(10000);
+
+  MoveForwardCells(6);
   WaitMs(10000);
   // TurnRight();
   // WaitMs(150);

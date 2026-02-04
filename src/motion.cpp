@@ -20,7 +20,7 @@ static const float FRONT_STOP_CM = 6.0f;
 //---added rn
 static const int PWM_KICK = 200;          // confirmed 200 works
 static const int PWM_MAX  = 180;          // tune
-static const int PWM_MIN_RUN = 150;       // above stall (tune)
+static const int PWM_MIN_RUN = 160;       // above stall (tune)
 static const float KP_POS = 1.50f;        // speed proportional to distance remaining
 static const uint32_t KICK_MS = 120; 
 
@@ -82,7 +82,7 @@ class SystemPID {
 public:
   SystemPID()
   : distanceKp(0.35f), distanceKi(0.0f), distanceKd(0.0f),
-    encoderKp(0.30f), encoderKi(0.0f), encoderKd(0.0f),
+    encoderKp(0.35f), encoderKi(0.0f), encoderKd(0.0f),
     distancePrevError(0.0f), encoderPrevError(0.0f),
     distanceIntegral(0.0f), encoderIntegral(0.0f),
     basePWM_forward(130.0f), 
@@ -147,32 +147,48 @@ public:
 
     //float base = basePWM_forward;
 
-    //added rn 
-    float base = 0;
+    // dynamic speed profile (scaled by distance)
+    float base = 0.0f;
     float progress = targetCounts - remainingCounts;
 
-    const float START_COUNTS = 20;
-    const float END_COUNTS = 50; 
-    const float maxpwm = 170;
+    float cells = (float)targetCounts / (float)COUNTS_PER_CELL;
 
-    if (progress < START_COUNTS) {
-      base = PWM_MIN_RUN + (maxpwm - PWM_MIN_RUN) * progress / START_COUNTS;
-    } else if (remainingCounts < END_COUNTS) {
-      base = PWM_MIN_RUN + (maxpwm - PWM_MIN_RUN) * remainingCounts / END_COUNTS;
+    // Short moves -> lower max; long moves -> higher min
+    float minRun = (cells >= 4.0f) ? 160.0f : (cells >= 3.0f ? 160.0f : 155.0f);
+    float maxpwm = (cells <= 2.0f) ? 160.0f : (cells <= 3.0f ? 165.0f : 165.0f);
+    if (maxpwm < minRun + 5.0f) maxpwm = minRun + 5.0f;
+
+    float accelCounts = constrain(targetCounts * 0.25f, 15.0f, 120.0f);
+    float decelCounts = constrain(targetCounts * 0.70f, 70.0f, 260.0f);
+
+    if (progress < accelCounts) {
+      base = minRun + (maxpwm - minRun) * (progress / accelCounts);
+    } else if (remainingCounts < decelCounts) {
+      float decelRatio = remainingCounts / decelCounts;
+      decelRatio = constrain(decelRatio, 0.0f, 1.0f);
+      base = minRun + (maxpwm - minRun) * (decelRatio * decelRatio);
     } else {
       base = maxpwm;
     }
 
+    // Softer kick for long runs
+    float kickPwm = (cells >= 4.0f) ? 190.0f : 190.0f;
+    uint32_t kickMs = (cells >= 4.0f) ? 70 : 120;
+    const float kickBiasRight = 8.0f; // compensate stronger left motor during kick
+    bool kickActive = false;
 
-    // float base = KP_POS * (float)remainingCounts; // Proportional control on distance remaining
-    // base = constrain(base, (float)PWM_MIN_RUN, (float)PWM_MAX);
-
-    if (millis() - moveStartMs < KICK_MS) {
-      base = PWM_KICK;   // kick
+    if (millis() - moveStartMs < kickMs) {
+      base = kickPwm;
+      kickActive = true;
     }
 
     float leftPWM  = base + sideCorrection + encoderCorrection;
     float rightPWM = base - sideCorrection - encoderCorrection;
+
+    if (kickActive) {
+      leftPWM  -= kickBiasRight;
+      rightPWM += kickBiasRight;
+    }
 
 
     leftPWM  = constrain(leftPWM,  -255.0f, 255.0f);
