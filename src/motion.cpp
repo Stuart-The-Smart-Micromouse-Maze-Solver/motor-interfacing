@@ -6,7 +6,7 @@
 #include "gyro_heading.h"
 
 // -------------------- motion state machine --------------------
-enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN, MOTION_WAIT};
+enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN, MOTION_WAIT, MOTION_MAINTAIN_DISTANCE};
 static MotionState state = MOTION_IDLE;
 
 static long startL = 0;
@@ -25,8 +25,6 @@ static const float KP_POS = 1.50f;        // speed proportional to distance rema
 static const uint32_t KICK_MS = 120; 
 
 static float turnTargetHeading = 0.0f;
-static long  turnStartL = 0;
-static long  turnStartR = 0;
 static uint32_t turnStartMs = 0;
 
 static const float TURN_TOL_DEG = 1.5f;        // 
@@ -34,6 +32,12 @@ static const uint32_t TURN_MIN_MS = 120;       // avoid instant-stop from noise
 static const uint32_t TURN_TIMEOUT_MS = 6000;  // idk if this is too much
 
 static uint32_t waitUntilMs = 0;
+
+// For wall distance maintenance
+static float targetWallDistanceMm = 100.0f;
+static uint32_t wallFollowStartMs = 0;
+static uint32_t wallFollowDurationMs = 0;
+static const float WALL_KP = 0.3f;  // Proportional gain for distance correction
 
 
 static inline float wrap360(float h)
@@ -44,7 +48,7 @@ static inline float wrap360(float h)
 }
 
 // -------------------- command queue --------------------
-enum CmdType { CMD_FWD_CELLS, CMD_FWD_CM, CMD_TURN_DEG, CMD_WAIT_MS };
+enum CmdType { CMD_FWD_CELLS, CMD_FWD_CM, CMD_TURN_DEG, CMD_WAIT_MS, CMD_MAINTAIN_DISTANCE };
 
 struct MotionCmd {
   CmdType type;
@@ -52,6 +56,8 @@ struct MotionCmd {
   float cm;
   float deg;
   uint32_t waitMs;
+  float targetDistanceMm;
+  uint32_t durationMs;
 };
 
 static const int CMD_Q_LEN = 8;
@@ -198,7 +204,7 @@ public:
     setMotorCommand(&rightMotor, (int)(rightPWM));
   }
  
-  void turnUpdate(float dt, float targetHeadingDeg, long turnStartL, long turnStartR)
+  void turnUpdate(float dt, float targetHeadingDeg)
 {
   if (dt <= 0.0f) dt = 1e-3f;
 
@@ -217,24 +223,16 @@ public:
   int dir = (err > 0) ? +1 : -1;
 
   // Base + correction magnitude
-  const int PWM_TURN_BASE = 170;   // This works to break friction
+  const int PWM_TURN_BASE = 160;   // This works to break friction
   const int PWM_TURN_MIN  = 160;
-  const int PWM_TURN_MAX  = 175;  // not sure if too high
+  const int PWM_TURN_MAX  = 160;
 
   float mag = PWM_TURN_BASE + fabsf(u);
   mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
 
-  // Encoder balance to keep pivot symmetric
-  long dL = (long)readEncoderCounts(leftEncoder)  - turnStartL;
-  long dR = (long)readEncoderCounts(rightEncoder) - turnStartR;
-  // For a perfect pivot, dL + dR ~= 0 (left negative, right positive).
-  float balanceErr = (float)(dL + dR);
-  float balanceKp  = 0.20f;              // tune: increase if one wheel overshoots
-  float balanceCorr = balanceKp * balanceErr;
-
-  // Apply correction to reduce the wheel that moved more
-  int leftCmd  = (int)constrain((-dir * mag) + balanceCorr, -255.0f, 255.0f);
-  int rightCmd = (int)constrain(( dir * mag) - balanceCorr, -255.0f, 255.0f);
+  // Apply symmetric turn commands
+  int leftCmd  = (int)constrain(-dir * mag, -255.0f, 255.0f);
+  int rightCmd = (int)constrain( dir * mag, -255.0f, 255.0f);
 
   setMotorCommand(&leftMotor, leftCmd);
   setMotorCommand(&rightMotor, rightCmd);
@@ -329,8 +327,6 @@ bool motionTurnDeg(float deg)
   while (target < 0.0f)    target += 360.0f;
 
   turnTargetHeading = target;
-  turnStartL = (long)readEncoderCounts(leftEncoder);
-  turnStartR = (long)readEncoderCounts(rightEncoder);
   turnStartMs = millis();
 
   PID.resetTurn();
@@ -356,6 +352,15 @@ static void tryStartNextCmd()
       stopMotors();
       waitUntilMs = millis() + (uint16_t)c.waitMs;
       state = MOTION_WAIT;
+      ok = true;
+      break;
+
+    case CMD_MAINTAIN_DISTANCE:
+      targetWallDistanceMm = c.targetDistanceMm;
+      wallFollowStartMs = millis();
+      wallFollowDurationMs = c.durationMs;
+      PID.reset();
+      state = MOTION_MAINTAIN_DISTANCE;
       ok = true;
       break;
   }
@@ -408,7 +413,7 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
   if (state == MOTION_TURN) {
     float err = angleDiffDeg(turnTargetHeading, gyroHeadingDeg());
 
-    PID.turnUpdate(dt, turnTargetHeading, turnStartL, turnStartR);
+    PID.turnUpdate(dt, turnTargetHeading);
 
     if ((fabsf(err) < TURN_TOL_DEG) && (millis() - turnStartMs > TURN_MIN_MS)) {
       brakeMotors(20);
@@ -421,6 +426,54 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
       motionStop();
       return;
     }
+    return;
+  }
+
+  if (state == MOTION_MAINTAIN_DISTANCE) {
+    // Check timeout
+    if (millis() - wallFollowStartMs > wallFollowDurationMs) {
+      brakeMotors(30);
+      motionStop();
+      return;
+    }
+
+    // Check if front distance is valid
+    if (frontDist < 0) {
+      // No valid reading, temporarily halt but don't stop the motion command
+      // Wait for valid readings to resume
+      static uint32_t lastWarningMs = 0;
+      if (millis() - lastWarningMs > 1000) {
+        Serial.println("Waiting for valid distance reading...");
+        lastWarningMs = millis();
+      }
+      brakeMotors(30);  // Hold position
+      return;  // Skip control logic but stay in MOTION_MAINTAIN_DISTANCE state
+    }
+
+    // Stop-and-go behavior: stop when within target distance, move when far
+    const float DISTANCE_TOLERANCE = 10.0f; // mm tolerance
+    
+    // If we're at or closer than the target distance, stop
+    if (frontDist <= (targetWallDistanceMm + DISTANCE_TOLERANCE)) {
+      brakeMotors(30);
+      static uint32_t lastStopMsg = 0;
+      if (millis() - lastStopMsg > 500) {
+        Serial.print("At target distance (");
+        Serial.print(frontDist);
+        Serial.println(" mm) - stopped");
+        lastStopMsg = millis();
+      }
+      return;
+    }
+    
+    // If we're farther than target, move forward
+    Serial.print("Moving forward - distance: ");
+    Serial.println(frontDist);
+    
+    const int FORWARD_PWM = 200;  // Constant forward speed
+    setMotorCommand(&leftMotor, FORWARD_PWM);
+    setMotorCommand(&rightMotor, FORWARD_PWM);
+  
     return;
   }
 }
@@ -469,6 +522,22 @@ bool Turn180()
 bool WaitMs(uint16_t ms)
 {
   bool ok = enqueueCmd({CMD_WAIT_MS, 0, 0.0f, 0.0f, ms});
+  tryStartNextCmd();
+  return ok;
+}
+
+bool MaintainDistanceFromWall(float targetDistanceMm, uint32_t durationMs)
+{
+  MotionCmd c;
+  c.type = CMD_MAINTAIN_DISTANCE;
+  c.cells = 0;
+  c.cm = 0.0f;
+  c.deg = 0.0f;
+  c.waitMs = 0;
+  c.targetDistanceMm = targetDistanceMm;
+  c.durationMs = durationMs;
+
+  bool ok = enqueueCmd(c);
   tryStartNextCmd();
   return ok;
 }

@@ -4,12 +4,23 @@
 #include "gyro_heading.h"
 #include "motion.h"
 #include "config.h"
+#include "distance.h"
+#include "status_led.h"
+#include <Wire.h>
 
 
 void setup()
 {
   Serial.begin(115200);
   delay(1000);
+
+  // Initialize status LED
+  statusLedInit();
+  statusLedOff();
+
+  // Initialize I2C bus
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(400000); // 400kHz I2C
 
   motorsInit(); 
   encodersInit();
@@ -22,6 +33,13 @@ void setup()
     Serial.println("Gyro NOT found (heading hold disabled)");
   }
 
+  // Initialize distance sensor
+  if (distanceInit()) {
+    Serial.println("Distance sensor OK");
+  } else {
+    Serial.println("Distance sensor NOT found");
+  }
+
   Serial.println("Init complete");
 }
 
@@ -32,15 +50,19 @@ void loop()
   float dt = (mowUs - lastUs) / 1e6f;
   lastUs = mowUs;
 
-  static bool started = false;
-  if (!started) {
-  MoveForwardCells(4); 
-  WaitMs(5000);
-
-  TurnRight();
-  WaitMs(10000);
-
-  started = true;
+  // Get distance reading from front sensor
+  int frontDist = getDistanceFront();
+  if (frontDist > 0) {
+    statusLedGreen();
   }
-  motionUpdate(dt, -1, -1, -1);
+  static bool started = false;
+  if (!started) {    
+    // Maintain 100mm distance from wall for 10 seconds
+    MaintainDistanceFromWall(100.0f, 1000000);
+    
+    started = true;
+  }
+  
+  // Update motion with front distance sensor reading
+  motionUpdate(dt, -1, (float)frontDist, -1);
 }
