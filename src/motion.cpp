@@ -217,22 +217,24 @@ public:
   int dir = (err > 0) ? +1 : -1;
 
   // Base + correction magnitude
-  const int PWM_TURN_BASE = 160;   // This works to break friction
-  const int PWM_TURN_MIN  = 140;
-  const int PWM_TURN_MAX  = 180;  // not sure if too high
+  const int PWM_TURN_BASE = 170;   // This works to break friction
+  const int PWM_TURN_MIN  = 160;
+  const int PWM_TURN_MAX  = 175;  // not sure if too high
 
   float mag = PWM_TURN_BASE + fabsf(u);
   mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
 
-  // Optional encoder balance to keep pivot symmetric
+  // Encoder balance to keep pivot symmetric
   long dL = (long)readEncoderCounts(leftEncoder)  - turnStartL;
   long dR = (long)readEncoderCounts(rightEncoder) - turnStartR;
-  float balanceErr = (float)(dL + dR);    // 
-  float balanceKp  = 0.0f;               // 0 disables this correction
+  // For a perfect pivot, dL + dR ~= 0 (left negative, right positive).
+  float balanceErr = (float)(dL + dR);
+  float balanceKp  = 0.20f;              // tune: increase if one wheel overshoots
   float balanceCorr = balanceKp * balanceErr;
 
-  int leftCmd  = (int)constrain((-dir * mag) - balanceCorr, -255.0f, 255.0f);
-  int rightCmd = (int)constrain(( dir * mag) + balanceCorr, -255.0f, 255.0f);
+  // Apply correction to reduce the wheel that moved more
+  int leftCmd  = (int)constrain((-dir * mag) + balanceCorr, -255.0f, 255.0f);
+  int rightCmd = (int)constrain(( dir * mag) - balanceCorr, -255.0f, 255.0f);
 
   setMotorCommand(&leftMotor, leftCmd);
   setMotorCommand(&rightMotor, rightCmd);
