@@ -57,8 +57,8 @@ void loop()
   }
   static bool started = false;
   if (!started) {    
-    // Maintain 100mm distance from wall for 10 seconds
-    MaintainDistanceFromWall(100.0f, 1000000);
+    // Example: move forward 6 cells, stop a few cm before the front wall
+    MoveForwardCells(6);
     
     started = true;
   }

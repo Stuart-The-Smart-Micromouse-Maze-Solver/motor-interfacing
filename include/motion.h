@@ -14,7 +14,6 @@ bool TurnRight();
 bool TurnLeft();    
 bool Turn180();  
 bool WaitMs(uint16_t ms);
-bool MaintainDistanceFromWall(float targetDistanceMm, uint32_t durationMs);
 
 
 // Status

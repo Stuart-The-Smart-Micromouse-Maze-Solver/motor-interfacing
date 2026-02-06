@@ -6,16 +6,17 @@
 #include "gyro_heading.h"
 
 // -------------------- motion state machine --------------------
-enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN, MOTION_WAIT, MOTION_MAINTAIN_DISTANCE};
+enum MotionState { MOTION_IDLE, MOTION_FORWARD, MOTION_TURN, MOTION_WAIT };
 static MotionState state = MOTION_IDLE;
 
 static long startL = 0;
 static long startR = 0;
 static long targetCounts = 0;
+static long effectiveTargetCounts = 0;
 static uint32_t moveStartMs = 0;
 
 static const int STOP_TOL_COUNTS = 1;
-static const float FRONT_STOP_CM = 6.0f;
+static const float FRONT_STOP_CM = 3.0f;
 
 //---added rn
 static const int PWM_KICK = 200;          // confirmed 200 works
@@ -33,12 +34,6 @@ static const uint32_t TURN_TIMEOUT_MS = 6000;  // idk if this is too much
 
 static uint32_t waitUntilMs = 0;
 
-// For wall distance maintenance
-static float targetWallDistanceMm = 100.0f;
-static uint32_t wallFollowStartMs = 0;
-static uint32_t wallFollowDurationMs = 0;
-static const float WALL_KP = 0.3f;  // Proportional gain for distance correction
-
 
 static inline float wrap360(float h)
 {
@@ -48,7 +43,7 @@ static inline float wrap360(float h)
 }
 
 // -------------------- command queue --------------------
-enum CmdType { CMD_FWD_CELLS, CMD_FWD_CM, CMD_TURN_DEG, CMD_WAIT_MS, CMD_MAINTAIN_DISTANCE };
+enum CmdType { CMD_FWD_CELLS, CMD_FWD_CM, CMD_TURN_DEG, CMD_WAIT_MS };
 
 struct MotionCmd {
   CmdType type;
@@ -56,8 +51,6 @@ struct MotionCmd {
   float cm;
   float deg;
   uint32_t waitMs;
-  float targetDistanceMm;
-  uint32_t durationMs;
 };
 
 static const int CMD_Q_LEN = 8;
@@ -110,7 +103,7 @@ public:
     encoderIntegral   = 0;
   }
 
-  void update(float dt, float leftDistance, float frontDistance, float rightDistance, long remainingCounts)
+  void update(float dt, float leftDistance, float frontDistance, float rightDistance, long remainingCounts, long targetCountsNow)
   {
     if (dt <= 0.0f) dt = 1e-3f;
 
@@ -155,17 +148,17 @@ public:
 
     // dynamic speed profile (scaled by distance)
     float base = 0.0f;
-    float progress = targetCounts - remainingCounts;
+    float progress = (float)(targetCountsNow - remainingCounts);
 
-    float cells = (float)targetCounts / (float)COUNTS_PER_CELL;
+    float cells = (float)targetCountsNow / (float)COUNTS_PER_CELL;
 
     // Short moves -> lower max; long moves -> higher min
     float minRun = (cells >= 4.0f) ? 160.0f : (cells >= 3.0f ? 160.0f : 155.0f);
     float maxpwm = (cells <= 2.0f) ? 160.0f : (cells <= 3.0f ? 165.0f : 165.0f);
     if (maxpwm < minRun + 5.0f) maxpwm = minRun + 5.0f;
 
-    float accelCounts = constrain(targetCounts * 0.25f, 15.0f, 120.0f);
-    float decelCounts = constrain(targetCounts * 0.70f, 70.0f, 260.0f);
+    float accelCounts = constrain(targetCountsNow * 0.25f, 15.0f, 120.0f);
+    float decelCounts = constrain(targetCountsNow * 0.70f, 70.0f, 260.0f);
 
     if (progress < accelCounts) {
       base = minRun + (maxpwm - minRun) * (progress / accelCounts);
@@ -288,6 +281,7 @@ bool motionMoveForwardCells(int cells)
   startL = (long)readEncoderCounts(leftEncoder);
   startR = (long)readEncoderCounts(rightEncoder);
   targetCounts = (long)cells * (long)COUNTS_PER_CELL;
+  effectiveTargetCounts = targetCounts;
 
   PID.reset();
   moveStartMs = millis();
@@ -305,6 +299,7 @@ bool motionMoveForwardCm(float cm)
   startL = (long)readEncoderCounts(leftEncoder);
   startR = (long)readEncoderCounts(rightEncoder);
   targetCounts = counts;
+  effectiveTargetCounts = targetCounts;
 
   PID.reset();
   moveStartMs = millis();
@@ -354,15 +349,6 @@ static void tryStartNextCmd()
       state = MOTION_WAIT;
       ok = true;
       break;
-
-    case CMD_MAINTAIN_DISTANCE:
-      targetWallDistanceMm = c.targetDistanceMm;
-      wallFollowStartMs = millis();
-      wallFollowDurationMs = c.durationMs;
-      PID.reset();
-      state = MOTION_MAINTAIN_DISTANCE;
-      ok = true;
-      break;
   }
 
   if (!ok) {
@@ -380,13 +366,6 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
     if (state == MOTION_IDLE) return; // still nothing to do
   }
 
-  // when tof front is implemented
-  if (frontDist >= 0 && frontDist < FRONT_STOP_CM) {
-    brakeMotors(30);
-    motionStop();
-    return;
-  }
-
     if (state == MOTION_WAIT) {
       stopMotors();
       if ((int32_t)(millis() - waitUntilMs) >= 0) {
@@ -398,15 +377,29 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
 
   if (state == MOTION_FORWARD) {
     long prog = avgProgressCounts();
-    long remaining = targetCounts - prog;
+    if (frontDist > 0.0f) {
+      float distToWallCm = frontDist - FRONT_STOP_CM;
+      if (distToWallCm <= 0.0f) {
+        brakeMotors(30);
+        motionStop();
+        return;
+      }
+      long wallLimitCounts = (long)lround(distToWallCm / CM_PER_COUNT);
+      if (wallLimitCounts < effectiveTargetCounts) {
+        effectiveTargetCounts = wallLimitCounts;
+      }
+    }
 
-    if (prog >= (targetCounts - STOP_TOL_COUNTS)) {
+    if (effectiveTargetCounts < 0) effectiveTargetCounts = 0;
+    long remaining = effectiveTargetCounts - prog;
+
+    if (prog >= (effectiveTargetCounts - STOP_TOL_COUNTS) || remaining <= STOP_TOL_COUNTS) {
       brakeMotors(50); //stops the wheels quickly 
       motionStop();
       return;
     }
     // Drive using PID straightening
-    PID.update(dt, leftDist, frontDist, rightDist, remaining);
+    PID.update(dt, leftDist, frontDist, rightDist, remaining, effectiveTargetCounts);
     return; 
   }
 
@@ -429,53 +422,6 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
     return;
   }
 
-  if (state == MOTION_MAINTAIN_DISTANCE) {
-    // Check timeout
-    if (millis() - wallFollowStartMs > wallFollowDurationMs) {
-      brakeMotors(30);
-      motionStop();
-      return;
-    }
-
-    // Check if front distance is valid
-    if (frontDist < 0) {
-      // No valid reading, temporarily halt but don't stop the motion command
-      // Wait for valid readings to resume
-      static uint32_t lastWarningMs = 0;
-      if (millis() - lastWarningMs > 1000) {
-        Serial.println("Waiting for valid distance reading...");
-        lastWarningMs = millis();
-      }
-      brakeMotors(30);  // Hold position
-      return;  // Skip control logic but stay in MOTION_MAINTAIN_DISTANCE state
-    }
-
-    // Stop-and-go behavior: stop when within target distance, move when far
-    const float DISTANCE_TOLERANCE = 10.0f; // mm tolerance
-    
-    // If we're at or closer than the target distance, stop
-    if (frontDist <= (targetWallDistanceMm + DISTANCE_TOLERANCE)) {
-      brakeMotors(30);
-      static uint32_t lastStopMsg = 0;
-      if (millis() - lastStopMsg > 500) {
-        Serial.print("At target distance (");
-        Serial.print(frontDist);
-        Serial.println(" mm) - stopped");
-        lastStopMsg = millis();
-      }
-      return;
-    }
-    
-    // If we're farther than target, move forward
-    Serial.print("Moving forward - distance: ");
-    Serial.println(frontDist);
-    
-    const int FORWARD_PWM = 200;  // Constant forward speed
-    setMotorCommand(&leftMotor, FORWARD_PWM);
-    setMotorCommand(&rightMotor, FORWARD_PWM);
-  
-    return;
-  }
 }
 
 bool MoveForwardCells(int cells)
@@ -525,22 +471,5 @@ bool WaitMs(uint16_t ms)
   tryStartNextCmd();
   return ok;
 }
-
-bool MaintainDistanceFromWall(float targetDistanceMm, uint32_t durationMs)
-{
-  MotionCmd c;
-  c.type = CMD_MAINTAIN_DISTANCE;
-  c.cells = 0;
-  c.cm = 0.0f;
-  c.deg = 0.0f;
-  c.waitMs = 0;
-  c.targetDistanceMm = targetDistanceMm;
-  c.durationMs = durationMs;
-
-  bool ok = enqueueCmd(c);
-  tryStartNextCmd();
-  return ok;
-}
-
 
 
