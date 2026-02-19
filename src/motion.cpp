@@ -16,7 +16,7 @@ static long effectiveTargetCounts = 0;
 static uint32_t moveStartMs = 0;
 
 static const int STOP_TOL_COUNTS = 1;
-static const float FRONT_STOP_CM = 3.0f;
+static const float FRONT_STOP_CM = 6.0f;
 
 //---added rn
 static const int PWM_KICK = 200;          // confirmed 200 works
@@ -360,6 +360,7 @@ static void tryStartNextCmd()
 void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
 {
   gyroUpdate();
+  if (dt > 0.05f) dt = 0.05f;
 
   if (state == MOTION_IDLE) {
     tryStartNextCmd();
@@ -471,5 +472,6 @@ bool WaitMs(uint16_t ms)
   tryStartNextCmd();
   return ok;
 }
+
 
 
