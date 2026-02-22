@@ -16,7 +16,7 @@ static long effectiveTargetCounts = 0;
 static uint32_t moveStartMs = 0;
 
 static const int STOP_TOL_COUNTS = 1;
-static const float FRONT_STOP_CM = 6.0f;
+static const float FRONT_STOP_CM = 2.0f;
 
 //---added rn
 static const int PWM_KICK = 200;          // confirmed 200 works
@@ -146,49 +146,30 @@ public:
 
     //float base = basePWM_forward;
 
-    // dynamic speed profile (scaled by distance)
-    float base = 0.0f;
+    // --- Dynamic Speed Profile (The "Min-Clip" Trapezoid) ---
     float progress = (float)(targetCountsNow - remainingCounts);
 
-    float cells = (float)targetCountsNow / (float)COUNTS_PER_CELL;
+    // Tune minRun if needed. 
+    float minRun = 120.0f; 
+    float maxpwm = 180.0f; // Absolute maximum speed
 
-    // Short moves -> lower max; long moves -> higher min
-    float minRun = (cells >= 4.0f) ? 160.0f : (cells >= 3.0f ? 160.0f : 155.0f);
-    float maxpwm = (cells <= 2.0f) ? 160.0f : (cells <= 3.0f ? 165.0f : 165.0f);
-    if (maxpwm < minRun + 5.0f) maxpwm = minRun + 5.0f;
+    // Define fixed physical distances for accel/decel
+    float accelCounts = 30.0f; // ~0.5 cells to reach max speed
+    float decelCounts = 60.0f; // ~1.0 cell to stop
 
-    float accelCounts = constrain(targetCountsNow * 0.25f, 15.0f, 120.0f);
-    float decelCounts = constrain(targetCountsNow * 0.70f, 70.0f, 260.0f);
+    // 1. Calculate the Acceleration Curve
+    float accelRatio = constrain(progress / accelCounts, 0.0f, 1.0f);
+    float accelBase = minRun + (maxpwm - minRun) * accelRatio;
 
-    if (progress < accelCounts) {
-      base = minRun + (maxpwm - minRun) * (progress / accelCounts);
-    } else if (remainingCounts < decelCounts) {
-      float decelRatio = remainingCounts / decelCounts;
-      decelRatio = constrain(decelRatio, 0.0f, 1.0f);
-      base = minRun + (maxpwm - minRun) * (decelRatio * decelRatio);
-    } else {
-      base = maxpwm;
-    }
+    // 2. Calculate the Deceleration Curve (Quadratic for soft landing)
+    float decelRatio = constrain((float)remainingCounts / decelCounts, 0.0f, 1.0f);
+    float decelBase = minRun + (maxpwm - minRun) * (decelRatio * decelRatio);
 
-    // Softer kick for long runs
-    float kickPwm = (cells >= 4.0f) ? 190.0f : 190.0f;
-    uint32_t kickMs = (cells >= 4.0f) ? 70 : 120;
-    const float kickBiasRight = 8.0f; // compensate stronger left motor during kick
-    bool kickActive = false;
-
-    if (millis() - moveStartMs < kickMs) {
-      base = kickPwm;
-      kickActive = true;
-    }
+    // 3. The Magic: The actual speed is just the lowest of the three!
+    float base = min(maxpwm, min(accelBase, decelBase));
 
     float leftPWM  = base + sideCorrection + encoderCorrection;
     float rightPWM = base - sideCorrection - encoderCorrection;
-
-    if (kickActive) {
-      leftPWM  -= kickBiasRight;
-      rightPWM += kickBiasRight;
-    }
-
 
     leftPWM  = constrain(leftPWM,  -255.0f, 255.0f);
     rightPWM = constrain(rightPWM, -255.0f, 255.0f);
@@ -204,6 +185,10 @@ public:
   float current = gyroHeadingDeg();
   float err = angleDiffDeg(targetHeadingDeg, current); 
 
+  if (err * turnPrevError <= 0.0f) {
+    turnIntegral = 0.0f; 
+  }
+
   // PID on heading error
   turnIntegral += err * dt;
   turnIntegral = constrain(turnIntegral, -30.0f, 30.0f); // anti-windup
@@ -215,15 +200,20 @@ public:
 
   int dir = (err > 0) ? +1 : -1;
 
-  // Base + correction magnitude
-  const int PWM_TURN_BASE = 160;   // This works to break friction
-  const int PWM_TURN_MIN  = 160;
-  const int PWM_TURN_MAX  = 160;
+  // Soft Land parameters
+  const float PWM_TURN_MIN  = 120.0f; // Lowest PWM to overcome friction
+  const float PWM_TURN_MAX  = 180.0f;
 
-  float mag = PWM_TURN_BASE + fabsf(u);
-  mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
+  float mag = fabsf(u);
 
-  // Apply symmetric turn commands
+  // Only force a minimum speed if we are still outside our acceptable tolerance
+  if (mag < PWM_TURN_MIN && fabsf(err) > TURN_TOL_DEG) {
+    mag = PWM_TURN_MIN;
+  }
+
+  // Notice the minimum constraint is 0.0f now, not 160!
+  mag = constrain(mag, 0.0f, PWM_TURN_MAX); 
+
   int leftCmd  = (int)constrain(-dir * mag, -255.0f, 255.0f);
   int rightCmd = (int)constrain( dir * mag, -255.0f, 255.0f);
 
@@ -378,16 +368,20 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
 
   if (state == MOTION_FORWARD) {
     long prog = avgProgressCounts();
-    if (frontDist > 0.0f) {
-      float distToWallCm = frontDist - FRONT_STOP_CM;
-      if (distToWallCm <= 0.0f) {
+
+    if (frontDist > 0.0f){
+      float frontDistCm = frontDist / 10.0f; 
+      float distToWallCm = frontDistCm - FRONT_STOP_CM; 
+
+      if (distToWallCm <= 0.0f){
         brakeMotors(30);
-        motionStop();
-        return;
+        motionStop(); 
+        return; 
       }
-      long wallLimitCounts = (long)lround(distToWallCm / CM_PER_COUNT);
-      if (wallLimitCounts < effectiveTargetCounts) {
-        effectiveTargetCounts = wallLimitCounts;
+
+      long wallLimitCounts = (long)lround(distToWallCm / CM_PER_COUNT); 
+      if (wallLimitCounts < effectiveTargetCounts){
+        effectiveTargetCounts = wallLimitCounts; 
       }
     }
 
@@ -472,6 +466,3 @@ bool WaitMs(uint16_t ms)
   tryStartNextCmd();
   return ok;
 }
-
-
-
