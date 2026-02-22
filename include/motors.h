@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "PID.h"
 
 // void motorsInit();
 
@@ -28,3 +29,21 @@ void setMotorCommand(Motor* m, int cmd);
 void stopMotors();
 void brakeMotors(uint32_t ms);
 //void brakeStop(uint32_t ms);
+
+
+namespace motors 
+{
+float readRPMRight();
+float readRPMLeft();
+void driveMotorRight(float);
+void driveMotorLeft(float);
+extern PIDController<float> rightMotorPID;
+extern PIDController<float> leftMotorPID;
+
+void init();
+void setCommand(Motor* m, int cmd);
+void stop();
+void brake(uint32_t ms);
+
+
+}

@@ -4,6 +4,8 @@
 
 struct Encoder {
   volatile int32_t counts;
+  volatile unsigned long lastCounts;
+  volatile unsigned long lastReadTime;
 };
 
 extern Encoder leftEncoder;
@@ -17,3 +19,4 @@ int64_t readEncoderCounts(const Encoder& encoder);
 void IRAM_ATTR leftEncoderISR();
 void IRAM_ATTR rightEncoderISR();
 
+float readRPM(Encoder& encoder);
