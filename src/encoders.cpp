@@ -25,38 +25,77 @@ void encodersInit()
   pinMode(ENC_D, INPUT_PULLUP);
 
   // Trigger on A and C rising; use B and D to decide direction
-  attachInterrupt(digitalPinToInterrupt(ENC_A), leftEncoderISR,  RISING);
-  attachInterrupt(digitalPinToInterrupt(ENC_C), rightEncoderISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENC_A), leftEncoderISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_B), leftEncoderISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_C), rightEncoderISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_D), rightEncoderISR, CHANGE);
 }
 
 void IRAM_ATTR leftEncoderISR()
 {
-  bool A = digitalRead(ENC_A);
-  bool B = digitalRead(ENC_B);
+  static uint8_t lastState = 0;
 
-  portENTER_CRITICAL_ISR(&encMux);
-  if (A == B) leftEncoder.counts--;
-  else        leftEncoder.counts++;
-  portEXIT_CRITICAL_ISR(&encMux);
+  uint8_t A = digitalRead(ENC_A);
+  uint8_t B = digitalRead(ENC_B);
+
+  uint8_t state = (A << 1) | B;
+  uint8_t combined = (lastState << 2) | state;
+
+  switch (combined)
+  {
+    case 0b0001:
+    case 0b0111:
+    case 0b1110:
+    case 0b1000:
+      leftEncoder.counts++;
+      break;
+
+    case 0b0010:
+    case 0b0100:
+    case 0b1101:
+    case 0b1011:
+      leftEncoder.counts--;
+      break;
+  }
+
+  lastState = state;
 }
 
 void IRAM_ATTR rightEncoderISR()
 {
-  bool C = digitalRead(ENC_C);
-  bool D = digitalRead(ENC_D);
+  static uint8_t lastState = 0;
 
-  portENTER_CRITICAL_ISR(&encMux);
-  // Goal: when robot drives forward, BOTH left & right counts increase.
-  if (C == D) rightEncoder.counts++;
-  else        rightEncoder.counts--;
-  portEXIT_CRITICAL_ISR(&encMux);
+  uint8_t C = digitalRead(ENC_C);
+  uint8_t D = digitalRead(ENC_D);
 
-  // If forward makes right counts DECREASE, flip the ++/-- above.
+  uint8_t state = (C << 1) | D;
+  uint8_t combined = (lastState << 2) | state;
+
+  switch (combined)
+  {
+    case 0b0001:
+    case 0b0111:
+    case 0b1110:
+    case 0b1000:
+      rightEncoder.counts++;
+      break;
+
+    case 0b0010:
+    case 0b0100:
+    case 0b1101:
+    case 0b1011:
+      rightEncoder.counts--;
+      break;
+  }
+
+  lastState = state;
 }
 
 
 
-#define COUNTS_PER_REV 35   // yo is this true??
+// #define COUNTS_PER_REV 35   // yo is this true??
+#define COUNTS_PER_REV 140
+
 
 float readRPM(Encoder& encoder)
 {
