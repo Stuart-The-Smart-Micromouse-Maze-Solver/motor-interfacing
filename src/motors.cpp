@@ -193,28 +193,52 @@ namespace motors
 {
 
 // SET MOTOR ACTIVE ZONE
-const int MOTOR_PWM_MIN = 150;
+const int MOTOR_PWM_MIN = 130;
 const int MOTOR_PWM_MAX = 255;
 const int MOTOR_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 
 // assumes left and right motors use same PID values
-float motor_P = 0.1f;
+// PID VALUES FOR RPM
+// float motor_P = 0.25f;
+// float motor_I = 0.0f;
+// float motor_D = 0.0f;
+
+// PID VALUES FOR ENCODER COUNTS
+float motor_P = 0.25f;
 float motor_I = 0.0f;
 float motor_D = 0.0f;
-float lastRPMRightRead = 0.0f;
-float lastRPMLeftRead = 0.0f;
+
+// float lastRPMRightRead = 0.0f; // not used?
+// float lastRPMLeftRead = 0.0f;
+
 float readRPMRight() {
-  // return 0.0f;
   float rpm = readRPM(rightEncoder);
+  // Serial.print("\tRPM = ");
+  // Serial.print(rpm);
+  return rpm;
+}
+float readRPMLeft() {
+  float rpm = readRPM(leftEncoder);
   Serial.print("\tRPM = ");
   Serial.print(rpm);
   return rpm;
 }
-float readRPMLeft() {
-  // return 0.0f;
-  float rpm = readRPM(leftEncoder);
-  return rpm;
+
+float readCountsRight() {
+  float counts = readEncoderCounts(rightEncoder);
+  // Serial.print("\tCOUNTS = ");
+  // Serial.print(counts);
+  return counts;
 }
+float readCountsLeft() {
+  float counts = readEncoderCounts(leftEncoder);
+  Serial.print("\tCOUNTS = ");
+  Serial.print(counts);
+  // flip left encoder
+  counts = -counts;
+  return counts;
+}
+
 void driveMotorRight(float output) {
   output = constrain(output, -MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);  // constrain it to the "useful" area
   if (output < 0) {
@@ -223,11 +247,11 @@ void driveMotorRight(float output) {
   else {
     output += MOTOR_PWM_MIN;
   }
-  output = constrain(output, -MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // extra constraint for safety...
+  output = constrain(output, -MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // extra constrain func for safety...
 
 
-  Serial.print("\tPWM = ");
-  Serial.println((int)output);
+  // Serial.print("\t\tPWM = ");
+  // Serial.println((int)output);
   setMotorCommand(&rightMotor, (int)output);
 }
 void driveMotorLeft(float output) {
@@ -240,10 +264,21 @@ void driveMotorLeft(float output) {
   }
   output = constrain(output, -MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // extra constraint for safety...
 
-  setMotorCommand(&leftMotor, output);
+  // flip left motor
+  // output = -output;
+
+  Serial.print("\t\tPWM = ");
+  Serial.println((int)output);
+  setMotorCommand(&leftMotor, (int)output);
 }
-PIDController<float> rightMotorPID(motor_P, motor_I, motor_D, readRPMRight, driveMotorRight);
-PIDController<float> leftMotorPID(motor_P, motor_I, motor_D, readRPMLeft, driveMotorLeft);
+
+// motors PID based on target RPM
+// PIDController<float> rightMotorPID(motor_P, motor_I, motor_D, readRPMRight, driveMotorRight);
+// PIDController<float> leftMotorPID(motor_P, motor_I, motor_D, readRPMLeft, driveMotorLeft);
+
+// motors PID based on target encoder counts
+PIDController<float> rightMotorPID(motor_P, motor_I, motor_D, readCountsRight, driveMotorRight);
+PIDController<float> leftMotorPID(motor_P, motor_I, motor_D, readCountsLeft, driveMotorLeft);
 
 
 void init()
@@ -267,6 +302,11 @@ void init()
   ledcAttachPin(BIN2, PWM_CH_R2);
 
   stopMotors();
+
+
+  rightMotorPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
+  leftMotorPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
+  // rightMotorPID.setInputBounds()
 }
 
 void setCommand(Motor *m, int cmd)

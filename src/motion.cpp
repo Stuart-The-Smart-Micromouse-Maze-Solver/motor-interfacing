@@ -148,6 +148,7 @@ public:
     //float base = basePWM_forward;
 
     // dynamic speed profile (scaled by distance)
+    /*    
     float base = 0.0f;
     float progress = targetCounts - remainingCounts;
 
@@ -181,6 +182,9 @@ public:
       base = kickPwm;
       kickActive = true;
     }
+    
+
+    
 
     float leftPWM  = base + sideCorrection + encoderCorrection;
     float rightPWM = base - sideCorrection - encoderCorrection;
@@ -196,6 +200,9 @@ public:
 
     setMotorCommand(&leftMotor,  (int)(leftPWM));
     setMotorCommand(&rightMotor, (int)(rightPWM));
+    */
+
+    // motors::rightMotorPID.s
   }
  
   void turnUpdate(float dt, float targetHeadingDeg, long turnStartL, long turnStartR)

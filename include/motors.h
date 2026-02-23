@@ -35,6 +35,8 @@ namespace motors
 {
 float readRPMRight();
 float readRPMLeft();
+float readCountsRight();
+float readCountsLeft();
 void driveMotorRight(float);
 void driveMotorLeft(float);
 extern PIDController<float> rightMotorPID;
