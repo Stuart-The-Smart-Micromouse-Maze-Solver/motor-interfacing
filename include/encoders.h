@@ -14,6 +14,7 @@ extern Encoder rightEncoder;
 void encodersInit();
 
 int64_t readEncoderCounts(const Encoder& encoder);
+void resetEncoderCounts();
 
 // These MUST be declared so main.cpp can attachInterrupt() to them
 void IRAM_ATTR leftEncoderISR();

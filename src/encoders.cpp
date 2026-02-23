@@ -17,6 +17,13 @@ int64_t readEncoderCounts(const Encoder& encoder)
   return (int64_t)c;
 }
 
+void resetEncoderCounts() {
+  noInterrupts();
+  leftEncoder.counts = 0;
+  rightEncoder.counts = 0;
+  interrupts();
+}
+
 void encodersInit()
 {
   pinMode(ENC_A, INPUT_PULLUP);
@@ -47,14 +54,14 @@ void IRAM_ATTR leftEncoderISR()
     case 0b0111:
     case 0b1110:
     case 0b1000:
-      leftEncoder.counts++;
+      leftEncoder.counts--; // flipped left encoder
       break;
 
     case 0b0010:
     case 0b0100:
     case 0b1101:
     case 0b1011:
-      leftEncoder.counts--;
+      leftEncoder.counts++; // flipped left encoder
       break;
   }
 

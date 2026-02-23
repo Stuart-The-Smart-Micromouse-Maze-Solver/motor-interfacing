@@ -204,82 +204,74 @@ const int MOTOR_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 // float motor_D = 0.0f;
 
 // PID VALUES FOR ENCODER COUNTS
-float motor_P = 0.25f;
-float motor_I = 0.0f;
-float motor_D = 0.0f;
+// float motor_P = 0.25f;
+// float motor_I = 0.0f;
+// float motor_D = 0.0f;
 
-// float lastRPMRightRead = 0.0f; // not used?
-// float lastRPMLeftRead = 0.0f;
+float motor_pos_P = 0.5f;
+float motor_pos_I = 0.0f;
+float motor_pos_D = 0.0f;
+float motor_turn_P = 0.2f;
+float motor_turn_I = 0.0f;
+float motor_turn_D = 0.0f;
 
-float readRPMRight() {
-  float rpm = readRPM(rightEncoder);
-  // Serial.print("\tRPM = ");
-  // Serial.print(rpm);
-  return rpm;
+
+float rightMotorOffset;
+float leftMotorOffset;
+
+
+
+float readTurn() {
+  
+  float R_counts = readEncoderCounts(rightEncoder);
+  float L_counts = readEncoderCounts(leftEncoder);
+  float offset = R_counts - L_counts;
+
+  // get absolute adjustment from gyro????
+  offset = 0.8 * offset + 0.2 * offset; // replace with gyro
+
+  Serial.print("\t1.Enc.Offset=");
+  Serial.print(offset);
+
+  return offset;
 }
-float readRPMLeft() {
-  float rpm = readRPM(leftEncoder);
-  Serial.print("\tRPM = ");
-  Serial.print(rpm);
-  return rpm;
+void updateTurn(float output) {
+  // positive means drive left more (???)
+  rightMotorOffset = -output;
+  leftMotorOffset = output;
+  
+  Serial.print("\t\t2.Mtr.Offset=");
+  Serial.print(output);
+
+  // dont actually drive motors, do that in the position PID loop
 }
 
-float readCountsRight() {
-  float counts = readEncoderCounts(rightEncoder);
-  // Serial.print("\tCOUNTS = ");
-  // Serial.print(counts);
-  return counts;
-}
-float readCountsLeft() {
-  float counts = readEncoderCounts(leftEncoder);
-  Serial.print("\tCOUNTS = ");
+float readPosition() {
+  float counts = (readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder)) / 2;
+
+  Serial.print("\t\t3.Avg.Pos=");
   Serial.print(counts);
-  // flip left encoder
-  counts = -counts;
+
   return counts;
 }
-
-void driveMotorRight(float output) {
-  output = constrain(output, -MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);  // constrain it to the "useful" area
-  if (output < 0) {
-    output -= MOTOR_PWM_MIN;
-  }
-  else {
-    output += MOTOR_PWM_MIN;
-  }
-  output = constrain(output, -MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // extra constrain func for safety...
-
-
-  // Serial.print("\t\tPWM = ");
-  // Serial.println((int)output);
-  setMotorCommand(&rightMotor, (int)output);
-}
-void driveMotorLeft(float output) {
-  output = constrain(output, -MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);  // constrain it to the "useful" area
-  if (output < 0) {
-    output -= MOTOR_PWM_MIN;
-  }
-  else {
-    output += MOTOR_PWM_MIN;
-  }
-  output = constrain(output, -MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // extra constraint for safety...
-
-  // flip left motor
-  // output = -output;
-
-  Serial.print("\t\tPWM = ");
+void updatePosition(float output) {
+  Serial.print("\t\t4.PWM = ");
   Serial.println((int)output);
-  setMotorCommand(&leftMotor, (int)output);
+
+  int R = output + rightMotorOffset;
+  if (R < 0) {R -= MOTOR_PWM_MIN;}
+  else if (R > 0) {R += MOTOR_PWM_MIN;}
+
+  int L = output + leftMotorOffset;
+  if (L < 0) {L -= MOTOR_PWM_MIN;}
+  else if (L > 0) {L += MOTOR_PWM_MIN;}
+
+  setMotorCommand(&rightMotor, L);
+  setMotorCommand(&leftMotor, R);
 }
-
-// motors PID based on target RPM
-// PIDController<float> rightMotorPID(motor_P, motor_I, motor_D, readRPMRight, driveMotorRight);
-// PIDController<float> leftMotorPID(motor_P, motor_I, motor_D, readRPMLeft, driveMotorLeft);
-
-// motors PID based on target encoder counts
-PIDController<float> rightMotorPID(motor_P, motor_I, motor_D, readCountsRight, driveMotorRight);
-PIDController<float> leftMotorPID(motor_P, motor_I, motor_D, readCountsLeft, driveMotorLeft);
-
+// POSITION and TURNING PID LOOPS INSTEAD
+PIDController<float> motorTurnPID(motor_turn_P, motor_turn_I, motor_turn_D, readTurn, updateTurn);
+PIDController<float> motorPositionPID(motor_pos_P, motor_pos_I, motor_pos_D, readPosition, updatePosition);
 
 void init()
 {
@@ -304,9 +296,9 @@ void init()
   stopMotors();
 
 
-  rightMotorPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
-  leftMotorPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
-  // rightMotorPID.setInputBounds()
+  motorPositionPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
+  motorTurnPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
+  motorTurnPID.setTarget(0);
 }
 
 void setCommand(Motor *m, int cmd)

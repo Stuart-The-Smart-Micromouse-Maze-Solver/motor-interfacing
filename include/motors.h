@@ -39,8 +39,8 @@ float readCountsRight();
 float readCountsLeft();
 void driveMotorRight(float);
 void driveMotorLeft(float);
-extern PIDController<float> rightMotorPID;
-extern PIDController<float> leftMotorPID;
+extern PIDController<float> motorTurnPID;
+extern PIDController<float> motorPositionPID;
 
 void init();
 void setCommand(Motor* m, int cmd);
