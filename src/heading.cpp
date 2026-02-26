@@ -67,8 +67,10 @@ void gyroUpdate()
   float gz = g.gyro.z - gyroBiasZ; // rad/s
   headingDeg += (gz * 180.0f / PI) * dt;
 
-  while (headingDeg >= 360.0f) headingDeg -= 360.0f;
-  while (headingDeg < 0.0f)    headingDeg += 360.0f;
+  // while (headingDeg >= 360.0f) headingDeg -= 360.0f;
+  // while (headingDeg < 0.0f)    headingDeg += 360.0f;
+  while (headingDeg >= 180.0f) headingDeg -= 360.0f;
+  while (headingDeg < -180.0f)    headingDeg += 360.0f;
 }
 
 float angleDiffDeg(float target, float current)

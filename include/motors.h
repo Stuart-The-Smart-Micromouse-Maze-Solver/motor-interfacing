@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "PID.h"
+#include "gyro_heading.h"
 
 // void motorsInit();
 
@@ -41,6 +42,8 @@ void driveMotorRight(float);
 void driveMotorLeft(float);
 extern PIDController<float> motorTurnPID;
 extern PIDController<float> motorPositionPID;
+extern PIDController<float> motorRightVelocityPID;
+extern PIDController<float> motorLeftVelocityPID;
 
 void init();
 void setCommand(Motor* m, int cmd);

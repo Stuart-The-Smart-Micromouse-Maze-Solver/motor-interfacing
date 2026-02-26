@@ -148,7 +148,7 @@ public:
     //float base = basePWM_forward;
 
     // dynamic speed profile (scaled by distance)
-    /*    
+    
     float base = 0.0f;
     float progress = targetCounts - remainingCounts;
 
@@ -200,7 +200,7 @@ public:
 
     setMotorCommand(&leftMotor,  (int)(leftPWM));
     setMotorCommand(&rightMotor, (int)(rightPWM));
-    */
+    
 
     // motors::rightMotorPID.s
   }
