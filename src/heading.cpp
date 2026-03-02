@@ -7,9 +7,12 @@
 static Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
 
 static bool gyroValid = false;
-static float headingDeg = 0.0f;
+
+static float integratedDeg = 0.0f;   // continuous integration
+static float zeroOffsetDeg = 0.0f;   // reference heading
+
 static float gyroBiasZ = 0.0f;
-static uint32_t lastIMUUpdate = 0;
+static uint32_t lastUpdate = 0;
 
 bool gyroInit()
 {
@@ -20,37 +23,33 @@ bool gyroInit()
     return false;
   }
 
-  gyroValid = true;
   gyro.setRange(GYRO_RANGE_250DPS);
 
-  headingDeg = 0.0f;
+  gyroValid = true;
+  integratedDeg = 0.0f;
+  zeroOffsetDeg = 0.0f;
   gyroBiasZ = 0.0f;
-  lastIMUUpdate = micros();
+  lastUpdate = micros();
+
   return true;
-}
-
-bool gyroIsValid() { return gyroValid; }
-
-float gyroHeadingDeg() { return headingDeg; }
-
-void gyroResetHeading(float h)
-{
-  headingDeg = h;
-  lastIMUUpdate = micros();
 }
 
 void gyroQuickBiasCal(uint16_t samples)
 {
   if (!gyroValid) return;
 
-  float sumZ = 0.0f;
+  float sum = 0.0f;
+
   for (uint16_t i = 0; i < samples; i++) {
     sensors_event_t g;
-    if (gyro.getEvent(&g)) sumZ += g.gyro.z;
+    if (gyro.getEvent(&g)) sum += g.gyro.z;
     delay(2);
   }
-  gyroBiasZ = sumZ / samples;
-  gyroResetHeading(0.0f);
+
+  gyroBiasZ = sum / samples;
+
+  integratedDeg = 0.0f;
+  zeroOffsetDeg = 0.0f;
 }
 
 void gyroUpdate()
@@ -58,25 +57,29 @@ void gyroUpdate()
   if (!gyroValid) return;
 
   uint32_t now = micros();
-  float dt = (now - lastIMUUpdate) / 1000000.0f;
-  lastIMUUpdate = now;
+  float dt = (now - lastUpdate) * 1e-6f;
+  lastUpdate = now;
 
   sensors_event_t g;
   if (!gyro.getEvent(&g)) return;
 
   float gz = g.gyro.z - gyroBiasZ; // rad/s
-  headingDeg += (gz * 180.0f / PI) * dt;
 
-  // while (headingDeg >= 360.0f) headingDeg -= 360.0f;
-  // while (headingDeg < 0.0f)    headingDeg += 360.0f;
-  while (headingDeg >= 180.0f) headingDeg -= 360.0f;
-  while (headingDeg < -180.0f)    headingDeg += 360.0f;
+  integratedDeg += gz * 57.2957795f * dt; // rad → deg
 }
 
-float angleDiffDeg(float target, float current)
+
+float readDeg()
 {
-  float d = target - current;
-  while (d > 180.0f) d -= 360.0f;
-  while (d < -180.0f) d += 360.0f;
-  return d;
+  float relative = integratedDeg - zeroOffsetDeg;
+
+  while (relative > 180.0f)  relative -= 360.0f;
+  while (relative < -180.0f) relative += 360.0f;
+
+  return relative;
+}
+
+void resetDeg()
+{
+  zeroOffsetDeg = integratedDeg;
 }

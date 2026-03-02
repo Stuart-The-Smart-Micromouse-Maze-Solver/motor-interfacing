@@ -75,8 +75,8 @@ namespace motors
 {
 
 // set control loop frequencies!!!
-const int POSITION_PID_DELAY_MS = 20; // 20ms = 50hz
-const int VELOCITY_PID_DELAY_MS = 5;  // 5ms = 200Hz
+const int POSITION_PID_DELAY_MS = 5; // 20ms = 50hz
+const int VELOCITY_PID_DELAY_MS = 1;  // 5ms = 200Hz
 
 // SET MOTOR ACTIVE ZONE
 const int MOTOR_PWM_MIN = 130;
@@ -85,7 +85,7 @@ const int MOTOR_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 
 // assuming: control loop is 200hz = 5ms
 // max change in PWM to prevent slipping?
-const int MAX_DELTA_PWM = 10;
+const int MAX_DELTA_PWM = 20;
 // or max change in velocity to prevent slipping
 const int MAX_ACCEL = 20; // idk what units
 
@@ -113,14 +113,19 @@ float readTurn() {
   float L = readEncoderCounts(leftEncoder);
   
   // convert encoder ticks to heading
-  float deg = COUNTS_OFFSET_PER_DEG * (R - L);
+  float encoderDeg = COUNTS_OFFSET_PER_DEG * (R - L);
 
   // get absolute adjustment from gyro????
+  gyroUpdate();
+  float gyroDeg = readDeg();
+  
+
   // RANSAC? how would this work lol
   // RANSAC with encoders and gyro into output in degrees
-  deg = 0.8 * deg + 0.2 * deg; // replace with gyro and RANSAC
-  
-  return deg;
+  float alpha = 0.95;
+
+  float fused = (alpha * gyroDeg) + ((1-alpha) * encoderDeg);
+  return fused;
 }
 
 // gyro based
@@ -142,8 +147,9 @@ void updateTurn(float output) {
 float readPosition() {
   float R = readEncoderCounts(rightEncoder);
   float L = readEncoderCounts(leftEncoder);
-  
   float counts = (R + L) / 2;
+
+  // float frontDist = 
 
   return counts;
 }

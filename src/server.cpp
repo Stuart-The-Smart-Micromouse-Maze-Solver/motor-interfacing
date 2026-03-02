@@ -3,7 +3,9 @@
 RobotServer::RobotServer(PIDController<float>* turn, PIDController<float>* pos, PIDController<float>* rVel, PIDController<float>* lVel) 
     : _server(80), _turn(turn), _pos(pos), _rVel(rVel), _lVel(lVel) {}
 
-void RobotServer::begin(const char* ssid, const char* password, void (*restartFunc)(), void (*posFunc)(int), void (*turnFunc)(float)) {
+void RobotServer::begin(const char* ssid, const char* password, void (*startFunc)(), void (*stopFunc)(), void (*restartFunc)(), void (*posFunc)(int), void (*turnFunc)(float)) {
+    _startCallback = startFunc;
+    _stopCallback = stopFunc;
     _restartCallback = restartFunc;
     _posCallback = posFunc;
     _turnCallback = turnFunc;
@@ -26,7 +28,10 @@ void RobotServer::begin(const char* ssid, const char* password, void (*restartFu
         html += "</style></head><body>";
         
         // SIDEBAR
-        html += "<div class='sidebar'><button class='restart' onclick=\"fetch('/restart')\">RESET SYSTEM</button>";
+        html += "<div class='sidebar'>";
+        html += "<button class='restart' onclick=\"fetch('/start')\">START</button>";
+        html += "<button class='restart' onclick=\"fetch('/stop')\">STOP</button>";
+        html += "<button class='restart' onclick=\"fetch('/restart')\">RESTART</button>";
         
         html += "<h3>Movement</h3>";
         html += "<button class='cmd' onclick=\"fetch('/pos?val=1')\">Move 1 Cell</button>";
@@ -41,8 +46,17 @@ void RobotServer::begin(const char* ssid, const char* password, void (*restartFu
         html += getParamHTML("Turn", _turn, "turn");
         html += getParamHTML("Velocity R", _rVel, "rvel");
         html += getParamHTML("Velocity L", _lVel, "lvel");
+        
+        // output log
+        // html += "<div>";
+        html += "<div class='card'><h4>System Log</h4>";
+        html += "<textarea id='logBox' readonly ";
+        html += "style='width:100%; height:200px; background:#111; color:#0f0; ";
+        html += "border:1px solid #333; font-family:monospace; resize:none; padding:10px;'></textarea>";
         html += "</div>";
 
+        html += "</div>";
+        
         // MAIN CONTENT (3 GRAPHS)
         html += "<div class='main'>";
         html += "<div class='card'><h4>Position Error</h4><div class='chart-container'><canvas id='posChart'></canvas></div></div>";
@@ -64,7 +78,16 @@ void RobotServer::begin(const char* ssid, const char* password, void (*restartFu
         html += "  update(velChart, [d.lvel.e, d.rvel.e]);";
         html += "  update(turnChart, [d.turn.e]);";
         html += "  ['pos','turn','rvel','lvel'].forEach(id => { document.getElementById(id+'_t').innerText = d[id].t; document.getElementById(id+'_o').innerText = d[id].o; });";
-        html += "});}, 100);</script></body></html>";
+        html += "});}, 100);";
+        
+        // output log
+        html += "setInterval(()=>{ fetch('/log').then(r=>r.text()).then(t=>{";
+        html += "  const box = document.getElementById('logBox');";
+        html += "  box.value = t;";
+        html += "  box.scrollTop = box.scrollHeight;";
+        html += "});}, 100);";
+
+        html += "</script></body></html>";
         
         request->send(200, "text/html", html);
     });
@@ -93,9 +116,31 @@ void RobotServer::begin(const char* ssid, const char* password, void (*restartFu
         request->send(200, "text/plain", "OK");
     });
 
+    _server.on("/start", HTTP_GET, [this](AsyncWebServerRequest *request){ if(_startCallback) _startCallback(); request->send(200, "text/plain", "OK"); });
+    _server.on("/stop", HTTP_GET, [this](AsyncWebServerRequest *request){ if(_stopCallback) _stopCallback(); request->send(200, "text/plain", "OK"); });
     _server.on("/restart", HTTP_GET, [this](AsyncWebServerRequest *request){ if(_restartCallback) _restartCallback(); request->send(200, "text/plain", "OK"); });
 
+    _server.on("/log", HTTP_GET, [this](AsyncWebServerRequest *request){
+        String out;
+        for(const auto& line : _logBuffer){
+            out += line + "\n";
+        }
+        request->send(200, "text/plain", out);
+    });
+
     _server.begin();
+}
+
+void RobotServer::log(const String& msg) {
+    String line = "[" + String(millis()) + "] " + msg;
+
+    _logBuffer.push_back(line);
+
+    if(_logBuffer.size() > _maxLogLines) {
+        _logBuffer.pop_front();
+    }
+
+    Serial.println(line);  // optional but recommended
 }
 
 String RobotServer::getParamHTML(String name, PIDController<float>* pid, String id) {

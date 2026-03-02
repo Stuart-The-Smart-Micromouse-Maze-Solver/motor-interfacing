@@ -15,6 +15,16 @@ RobotServer robotServer(
 );
 volatile bool needsRestart = false;
 
+
+void triggerStart() {
+  motors::motorRightVelocityPID.setEnabled(true);
+  motors::motorLeftVelocityPID.setEnabled(true);
+}
+void triggerStop() {
+  motors::motorRightVelocityPID.setEnabled(false);
+  motors::motorLeftVelocityPID.setEnabled(false);
+  motors::stop();
+}
 void triggerRestart() {
   needsRestart = true;
 }
@@ -38,16 +48,12 @@ void setup()
   //motionInit();
 
   if (gyroInit()) {
+    gyroQuickBiasCal(4000); // pre-bake the offset? so boot is faster?
     Serial.println("Gyro OK");
-    gyroQuickBiasCal();
   } else {
     Serial.println("Gyro NOT found (heading hold disabled)");
   }
 
-  // start webserver
-  // robotServer.begin(&motors::motorTurnPID, &motors::motorPositionPID, &motors::motorLeftVelocityPID, &motors::motorRightVelocityPID, temp_restart_func);
-  // robotServer.log("WEBSERVER INITIALIZED...");
-  Serial.println("Init complete");
 
 
   xTaskCreatePinnedToCore(
@@ -55,6 +61,8 @@ void setup()
         robotServer.begin(
           "MINECRAFT_WIFI", 
           "ieeeieee", 
+          triggerStart,
+          triggerStop,
           triggerRestart,
           setTargetPosition,
           setTargetTurn
@@ -133,7 +141,17 @@ void loop()
 
 
   while (!needsRestart) {
+    nowMs = millis();
+
     motors::tick();
+
+    // robotServer.log("Gyro IMU: " + String(gyroHeadingDeg()));
+    // robotServer.log("Gyro ENC: " + String(COUNTS_OFFSET_PER_DEG * (readEncoderCounts(rightEncoder) - readEncoderCounts(leftEncoder))));
+    if (nowMs > temp_timer_outer + 100) {
+      // log 10hz
+      temp_timer_outer = nowMs;
+      robotServer.log("Gyro IMU/ENC: " + String(readDeg()) + " / " + String(COUNTS_OFFSET_PER_DEG * (readEncoderCounts(rightEncoder) - readEncoderCounts(leftEncoder))));
+    }
   }
   needsRestart = false;
 }

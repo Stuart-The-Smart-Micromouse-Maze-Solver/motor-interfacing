@@ -39,7 +39,8 @@ const float WHEEL_DIAMETER_CM = 3.34f;  // measured
 const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.1416f;
 
 
-const float WHEEL_BASE_DISTANCE = 8.0;
+const float WHEEL_BASE_DISTANCE = 6.7;  // slightly measured? but adjusted?? actually measured 8cm
 const float COUNTS_OFFSET_PER_DEG = (1 / COUNTS_PER_CM) * (2 / WHEEL_BASE_DISTANCE) * (180 / 3.1416f);  // I think this is right??? idk
+// const float COUNTS_OFFSET_PER_DEG = (WHEEL_BASE_DISTANCE * 3.14159f / 360.0f) * COUNTS_PER_CM;
 
 
