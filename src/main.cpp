@@ -82,8 +82,7 @@ void loop()
   uint32_t last_PID_tick = millis();
   
 
-
-  // TESTING TARGET ENCODER COUNTS
+  /*  // TESTING TARGET ENCODER COUNTS
   Serial.println("START RUNNING 1 CELL (243 counts)");
   motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + COUNTS_PER_CELL);
   motors::motorTurnPID.setTarget(0);  // straight
@@ -130,19 +129,11 @@ void loop()
     }
     
   }
+  */
 
 
   while (!needsRestart) {
-    nowMs = millis();
-    if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
-      last_PID_tick = nowMs;
-      motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
-      motors::motorPositionPID.tick();
-      motors::motorRightVelocityPID.tick();
-      motors::motorLeftVelocityPID.tick();
-
-      if (needsRestart) break;
-    }
+    motors::tick();
   }
   needsRestart = false;
 }

@@ -35,6 +35,11 @@ const float CM_PER_COUNT = 0.302f; //this was 0.33056 but changed to 0.2667
 const int COUNTS_PER_CELL = 243; //
 const int SPR = 140; // counts per wheel revolution
 
-const float WHEEL_DIAMETER_CM = 3.3f;
+const float WHEEL_DIAMETER_CM = 3.34f;  // measured
 const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.1416f;
+
+
+const float WHEEL_BASE_DISTANCE = 8.0;
+const float COUNTS_OFFSET_PER_DEG = (1 / COUNTS_PER_CM) * (2 / WHEEL_BASE_DISTANCE) * (180 / 3.1416f);  // I think this is right??? idk
+
 

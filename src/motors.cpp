@@ -74,48 +74,53 @@ void brakeMotors(uint32_t ms)
 namespace motors
 {
 
+// set control loop frequencies!!!
+const int POSITION_PID_DELAY_MS = 20; // 20ms = 50hz
+const int VELOCITY_PID_DELAY_MS = 5;  // 5ms = 200Hz
+
 // SET MOTOR ACTIVE ZONE
 const int MOTOR_PWM_MIN = 130;
 const int MOTOR_PWM_MAX = 255;
 const int MOTOR_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 
-// assuming: control loop is 100hz = 10ms
-// max change in PWM  to prevent slipping?
+// assuming: control loop is 200hz = 5ms
+// max change in PWM to prevent slipping?
 const int MAX_DELTA_PWM = 10;
 // or max change in velocity to prevent slipping
 const int MAX_ACCEL = 20; // idk what units
 
 
+uint32_t nowMs;
+uint32_t last_pos_pid_tick;
+uint32_t last_vel_pid_tick;
 
-float rightMotorOffset;
-float leftMotorOffset;
+
+
 float rightMotorRPM;
 float leftMotorRPM;
+
+float lastRightPWM;
+float lastLeftPWM;
+
+float angularVelOffset;
 
 
 // encoder based
 float readTurn() {
   
-  rightMotorRPM = readRPM(rightEncoder);
-  leftMotorRPM = readRPM(leftEncoder);
-  // R = readRPM(rightEncoder);
-  // L = readRPM(leftEncoder);
+
   float R = readEncoderCounts(rightEncoder);
   float L = readEncoderCounts(leftEncoder);
   
-  float offset = R - L;
-  // convert different in encoder ticks into rotation!!!!
-
+  // convert encoder ticks to heading
+  float deg = COUNTS_OFFSET_PER_DEG * (R - L);
 
   // get absolute adjustment from gyro????
-  offset = 0.8 * offset + 0.2 * offset; // replace with gyro
-  
   // RANSAC? how would this work lol
-
   // RANSAC with encoders and gyro into output in degrees
-
-
-  return offset;
+  deg = 0.8 * deg + 0.2 * deg; // replace with gyro and RANSAC
+  
+  return deg;
 }
 
 // gyro based
@@ -131,88 +136,47 @@ float readTurn() {
 //   return deg;
 // }
 void updateTurn(float output) {
-  // positive means drive left more (???)
-  rightMotorOffset = output;
-  leftMotorOffset = -output;
-  
-  // Serial.print("\t\t2.Mtr.Offset=");
-  // Serial.print(output);
-
-  // dont actually drive motors, do that in the position PID loop
+  angularVelOffset = output;
 }
 
 float readPosition() {
-  // float counts = (readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder)) / 2;
   float R = readEncoderCounts(rightEncoder);
   float L = readEncoderCounts(leftEncoder);
-  Serial.print("\t\tR/L.Pos=");
-  Serial.print(R);
-  Serial.print("/");
-  Serial.print(L);
   
   float counts = (R + L) / 2;
 
   return counts;
 }
 void updatePosition(float targetVel) {
-  Serial.print("\t\ttargetVel = ");
-  Serial.print((int)targetVel);
-
-  // int R = output + rightMotorOffset;
-  // if (R < 0) {R -= MOTOR_PWM_MIN;}
-  // else if (R > 0) {R += MOTOR_PWM_MIN;}
-
-  // int L = output + leftMotorOffset;
-  // if (L < 0) {L -= MOTOR_PWM_MIN;}
-  // else if (L > 0) {L += MOTOR_PWM_MIN;}
-
-  // setMotorCommand(&rightMotor, L);
-  // setMotorCommand(&leftMotor, R);
-  motorRightVelocityPID.setTarget(targetVel);
-  motorLeftVelocityPID.setTarget(targetVel);
+  motorRightVelocityPID.setTarget(targetVel + angularVelOffset);
+  motorLeftVelocityPID.setTarget(targetVel - angularVelOffset);
 }
 
 float readRightVelocity() {
-  // float avg = readRPM(rightEncoder);
-  float avg = rightMotorRPM;  // already retrieved
-  Serial.print("\t\tR.Vel = ");
-  Serial.print((int)avg);
-  Serial.print("/");
-  Serial.print((int)motorRightVelocityPID.getTarget());
-  return avg;
+  return rightMotorRPM;
 }
 void updateRightVelocity(float pwm) {
-  
-  Serial.print("\t\tpwm = ");
-  Serial.println((int)pwm);
-
-  int R = pwm + rightMotorOffset;
-  // if (R < 0) {R -= MOTOR_PWM_MIN;}
-  // else if (R > 0) {R += MOTOR_PWM_MIN;}
-
-  // int L = pwm + leftMotorOffset;
-  // if (L < 0) {L -= MOTOR_PWM_MIN;}
-  // else if (L > 0) {L += MOTOR_PWM_MIN;}
-
-  setMotorCommand(&rightMotor, R);
-  // setMotorCommand(&leftMotor, L);
+  pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM);
+  setMotorCommand(&rightMotor, pwm);
+  lastRightPWM = pwm;
 }
 
 float readLeftVelocity() {
-  // return readRPM(leftEncoder);
-  return leftMotorRPM;  // already retrieved;
+  return leftMotorRPM;
 }
 void updateLeftVelocity(float pwm) {
-  setMotorCommand(&leftMotor, pwm + leftMotorOffset);
+  pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM);
+  setMotorCommand(&leftMotor, pwm);
+  lastLeftPWM = pwm;
 }
-
-float motor_turn_P = 1.2f;
-float motor_turn_I = 0.0f;
-float motor_turn_D = 0.0f;
 
 float motor_pos_P = 0.5f;
 float motor_pos_I = 0.0f;
 float motor_pos_D = 0.0f;
+
+float motor_turn_P = 0.4f;
+float motor_turn_I = 0.0f;
+float motor_turn_D = 0.0f;
 
 float motor_vel_P = 0.001f;
 float motor_vel_I = 0.05f;
@@ -220,6 +184,7 @@ float motor_vel_D = 0.01f;
 
 PIDController<float> motorTurnPID(motor_turn_P, motor_turn_I, motor_turn_D, readTurn, updateTurn);
 PIDController<float> motorPositionPID(motor_pos_P, motor_pos_I, motor_pos_D, readPosition, updatePosition);
+
 PIDController<float> motorRightVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readRightVelocity, updateRightVelocity);
 PIDController<float> motorLeftVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readLeftVelocity, updateLeftVelocity);
 
@@ -258,7 +223,7 @@ void init()
   motorRightVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
   motorLeftVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
   motorTurnPID.setOutputBounds(-MOTOR_PWM_MAX*2, MOTOR_PWM_MAX*2);
-  motorTurnPID.setTarget(0);
+  // motorTurnPID.setTarget(0);
 }
 
 void setCommand(Motor *m, int cmd)
@@ -275,6 +240,29 @@ void setCommand(Motor *m, int cmd)
   } else {
     ledcWrite(m->chFwd, 0);
     ledcWrite(m->chRev, 0);
+  }
+}
+
+void tick() {
+  nowMs = millis();
+  if (nowMs > last_pos_pid_tick + POSITION_PID_DELAY_MS) {
+    last_pos_pid_tick = nowMs;
+    
+    motorTurnPID.tick();
+    motorPositionPID.tick();
+
+  }
+  if (nowMs > last_vel_pid_tick + VELOCITY_PID_DELAY_MS) {
+    last_vel_pid_tick = nowMs;
+
+
+    rightMotorRPM = readRPM(rightEncoder);
+    leftMotorRPM = readRPM(leftEncoder);
+
+    motorRightVelocityPID.tick();
+    motorLeftVelocityPID.tick();
+
+
   }
 }
 

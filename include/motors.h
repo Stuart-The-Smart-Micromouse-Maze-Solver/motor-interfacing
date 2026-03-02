@@ -47,6 +47,7 @@ extern PIDController<float> motorLeftVelocityPID;
 
 void init();
 void setCommand(Motor* m, int cmd);
+void tick();
 void stop();
 void brake(uint32_t ms);
 
