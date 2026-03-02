@@ -4,14 +4,28 @@
 #include "gyro_heading.h"
 #include "motion.h"
 #include "config.h"
-// #include "server.h"
+#include "server.h"
 
 
-// RobotServer robotServer("MINECRAFT_WIFI", "ieeeieee");
+RobotServer robotServer(
+  &motors::motorTurnPID,
+  &motors::motorPositionPID,
+  &motors::motorRightVelocityPID,
+  &motors::motorLeftVelocityPID
+);
+volatile bool needsRestart = false;
 
-void temp_restart_func() {
-
+void triggerRestart() {
+  needsRestart = true;
 }
+void setTargetPosition(int cellCount) {
+  motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + cellCount * COUNTS_PER_CELL);
+}
+void setTargetTurn(float deg) {
+  motors::motorTurnPID.setTarget(deg);
+}
+
+
 
 void setup()
 {
@@ -34,6 +48,26 @@ void setup()
   // robotServer.begin(&motors::motorTurnPID, &motors::motorPositionPID, &motors::motorLeftVelocityPID, &motors::motorRightVelocityPID, temp_restart_func);
   // robotServer.log("WEBSERVER INITIALIZED...");
   Serial.println("Init complete");
+
+
+  xTaskCreatePinnedToCore(
+    [](void* p){ 
+        robotServer.begin(
+          "MINECRAFT_WIFI", 
+          "ieeeieee", 
+          triggerRestart,
+          setTargetPosition,
+          setTargetTurn
+        );
+        for(;;) { vTaskDelay(1000 / portTICK_PERIOD_MS); } // Keep task alive
+    },
+    "WebServerTask",
+    8192,  // Stack size
+    NULL,
+    1,     // Priority
+    NULL,
+    0      // Core 0
+  );
 }
 
 void loop()
@@ -44,92 +78,71 @@ void loop()
   lastUs = nowUs;
   uint32_t nowMs = millis();
 
-  static bool started = false;
-  if (!started) {
-    // MoveForwardCells(1);
-    // WaitMs(500);
+  uint32_t temp_timer_outer = millis();
+  uint32_t last_PID_tick = millis();
+  
 
-    // TurnRight();
-    // WaitMs(150);
 
-    uint32_t temp_timer_outer = millis();
-    uint32_t last_PID_tick = millis();
+  // TESTING TARGET ENCODER COUNTS
+  Serial.println("START RUNNING 1 CELL (243 counts)");
+  motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + COUNTS_PER_CELL);
+  motors::motorTurnPID.setTarget(0);  // straight
+  while (nowMs < temp_timer_outer + 6000) { // try to run for 5 sec
+    nowMs = millis();
+
+    if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
+      last_PID_tick = nowMs;
+      motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
+      motors::motorPositionPID.tick();
+      motors::motorRightVelocityPID.tick();
+      motors::motorLeftVelocityPID.tick();
+
+      // also run in loop lol
+      // if (random(0, 10) >= 8) {
+      //   robotServer.sendTelemetry(random(0, 100) / 10.0, 20.0, 30.0);
+      // }
+      if (needsRestart) break;
+    }
     
-
-
-    // TESTING TARGET ENCODER COUNTS
-    Serial.println("START RUNNING 1 CELL (243 counts)");
-    motors::motorPositionPID.setTarget(readEncoderCounts(rightEncoder) + COUNTS_PER_CELL);
-    motors::motorTurnPID.setTarget(0);  // straight
-    while (nowMs < temp_timer_outer + 6000) { // try to run for 5 sec
-      nowMs = millis();
-
-      if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
-        last_PID_tick = nowMs;
-        motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
-        motors::motorPositionPID.tick();
-        motors::motorRightVelocityPID.tick();
-        motors::motorLeftVelocityPID.tick();
-
-        // also run in loop lol
-        // if (random(0, 10) >= 8) {
-        //   robotServer.sendTelemetry(random(0, 100) / 10.0, 20.0, 30.0);
-        // }
-      }
-      
-    }
-
-    // resetEncoderCounts();
-    temp_timer_outer = millis();
-    Serial.println("START RUNNING 3 CELL (729 counts)");
-    motors::motorPositionPID.setTarget(readEncoderCounts(rightEncoder) + 3 * COUNTS_PER_CELL);
-    motors::motorTurnPID.setTarget(0);  // straight
-    while (nowMs < temp_timer_outer + 10000) { // try to run for 5 sec
-      nowMs = millis();
-
-      if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
-        last_PID_tick = nowMs;
-        motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
-        motors::motorPositionPID.tick();
-        motors::motorRightVelocityPID.tick();
-        motors::motorLeftVelocityPID.tick();
-
-        // also run in loop lol
-        // if (random(0, 10) >= 8) {
-        //   robotServer.sendTelemetry(random(0, 100) / 10.0, 20.0, 30.0);
-        // }
-
-      }
-      
-    }
-
-
-    // try to turn! 90deg
-    // temp_timer_outer = millis();
-    // Serial.println("Start turning right!!!!!");
-    // motors::motorPositionPID.setTarget(readEncoderCounts(rightEncoder) + 3 * COUNTS_PER_CELL);
-    // motors::motorTurnPID.setTarget(0);  // straight
-    // while (nowMs < temp_timer_outer + 10000) { // try to run for 5 sec
-    //   nowMs = millis();
-
-    //   if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
-    //     last_PID_tick = nowMs;
-    //     motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
-    //     motors::motorPositionPID.tick();
-    //     motors::motorRightVelocityPID.tick();
-    //     motors::motorLeftVelocityPID.tick();
-    //   }
-      
-    // }
-
-    Serial.println("Stopping test");
-    stopMotors();
-
-    // while (true) {
-    //   Serial.println(readEncoderCounts(rightEncoder));
-    // }
-
-    started = true;
   }
-  motionUpdate(dt, -1, -1, -1);
+
+  // resetEncoderCounts();
+  temp_timer_outer = millis();
+  Serial.println("START RUNNING 3 CELL (729 counts)");
+  motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + 3 * COUNTS_PER_CELL);
+  motors::motorTurnPID.setTarget(0);  // straight
+  while (nowMs < temp_timer_outer + 10000) { // try to run for 5 sec
+    nowMs = millis();
+
+    if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
+      last_PID_tick = nowMs;
+      motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
+      motors::motorPositionPID.tick();
+      motors::motorRightVelocityPID.tick();
+      motors::motorLeftVelocityPID.tick();
+
+      // also run in loop lol
+      // if (random(0, 10) >= 8) {
+      //   robotServer.sendTelemetry(random(0, 100) / 10.0, 20.0, 30.0);
+      // }
+
+      if (needsRestart) break;
+    }
+    
+  }
+
+
+  while (!needsRestart) {
+    nowMs = millis();
+    if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
+      last_PID_tick = nowMs;
+      motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
+      motors::motorPositionPID.tick();
+      motors::motorRightVelocityPID.tick();
+      motors::motorLeftVelocityPID.tick();
+
+      if (needsRestart) break;
+    }
+  }
+  needsRestart = false;
 }

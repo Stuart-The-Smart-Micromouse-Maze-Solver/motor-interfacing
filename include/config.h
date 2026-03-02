@@ -30,7 +30,7 @@ const int PWM_CH_R2 = 3; // BIN2
 
 // Empirically determined constants: 
 
-const float COUNTS_PER_CM = 34.3f; 
+const float COUNTS_PER_CM = 33.3f; 
 const float CM_PER_COUNT = 0.302f; //this was 0.33056 but changed to 0.2667
 const int COUNTS_PER_CELL = 243; //
 const int SPR = 140; // counts per wheel revolution
