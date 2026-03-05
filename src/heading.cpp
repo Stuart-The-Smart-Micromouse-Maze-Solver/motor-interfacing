@@ -10,12 +10,12 @@ static bool gyroValid = false;
 static float headingDeg = 0.0f;
 static float gyroBiasZ = 0.0f;
 static uint32_t lastIMUUpdate = 0;
+extern TwoWire I2CBus1;
 
 bool gyroInit()
 {
-  Wire.begin(SDA_PIN, SCL_PIN);
-
-  if (!gyro.begin()) {
+  
+  if (!gyro.begin(33U, &I2CBus1)) {
     gyroValid = false;
     return false;
   }

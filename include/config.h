@@ -2,8 +2,8 @@
 #include <Arduino.h>
 
 // ================= Pins =================
-constexpr int SDA_PIN = 17;
-constexpr int SCL_PIN = 16;
+constexpr int SDA_PIN = 40;
+constexpr int SCL_PIN = 39;
 
 // Motor driver 
 constexpr int AIN1 = 37;
