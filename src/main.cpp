@@ -8,31 +8,33 @@
 
 
 RobotServer robotServer(
-  &motors::motorTurnPID,
-  &motors::motorPositionPID,
-  &motors::motorRightVelocityPID,
-  &motors::motorLeftVelocityPID
+  &motors::rotationPID,
+  &motors::positionPID,
+  &motors::rightVelocityPID,
+  &motors::leftVelocityPID
 );
 volatile bool needsRestart = false;
 
 
 void triggerStart() {
-  motors::motorRightVelocityPID.setEnabled(true);
-  motors::motorLeftVelocityPID.setEnabled(true);
+  motors::rightVelocityPID.setEnabled(true);
+  motors::leftVelocityPID.setEnabled(true);
 }
 void triggerStop() {
-  motors::motorRightVelocityPID.setEnabled(false);
-  motors::motorLeftVelocityPID.setEnabled(false);
+  motors::rightVelocityPID.setEnabled(false);
+  motors::leftVelocityPID.setEnabled(false);
   motors::stop();
 }
 void triggerRestart() {
   needsRestart = true;
 }
 void setTargetPosition(int cellCount) {
-  motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + cellCount * COUNTS_PER_CELL);
+  // motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + cellCount * COUNTS_PER_CELL);
+  motors::setTargetPosition(cellCount * 18.0f);
 }
 void setTargetTurn(float deg) {
-  motors::motorTurnPID.setTarget(deg);
+  // motors::motorTurnPID.setTarget(deg);
+  motors::setTargetRotation(deg);
 }
 
 
@@ -139,6 +141,25 @@ void loop()
   }
   */
 
+  /*
+
+  // general workflow
+  robotServer.log("1. Going straight...");
+  motors::setTargetPosition(18);
+  while (motors::isInAction) {motors::tick();}
+  
+  robotServer.log("2. Turning Right...");
+  motors::setTargetRotation(-90);
+  while (motors::isInAction) {motors::tick();}
+
+  robotServer.log("3. Going straight...");
+  motors::setTargetPosition(18);
+  while (motors::isInAction) {motors::tick();}
+
+  robotServer.log("4. Turning left...");
+  motors::setTargetRotation(90);
+  while (motors::isInAction) {motors::tick();}
+  */
 
   while (!needsRestart) {
     nowMs = millis();
@@ -154,4 +175,21 @@ void loop()
     }
   }
   needsRestart = false;
+
+  
+  robotServer.log("1. Going straight...");
+  motors::setTargetPosition(18);
+  while (motors::isInAction) {motors::tick();}
+  
+  robotServer.log("2. Turning Right...");
+  motors::setTargetRotation(-90);
+  while (motors::isInAction) {motors::tick();}
+
+  robotServer.log("3. Going straight...");
+  motors::setTargetPosition(18);
+  while (motors::isInAction) {motors::tick();}
+
+  robotServer.log("4. Turning left...");
+  motors::setTargetRotation(90);
+  while (motors::isInAction) {motors::tick();}
 }

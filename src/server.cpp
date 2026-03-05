@@ -35,11 +35,11 @@ void RobotServer::begin(const char* ssid, const char* password, void (*startFunc
         
         html += "<h3>Movement</h3>";
         html += "<button class='cmd' onclick=\"fetch('/pos?val=1')\">Move 1 Cell</button>";
-        html += "<div style='display:flex; gap:5px;'> <input id='customPos' value='2'> <button class='cmd' onclick=\"fetch('/pos?val='+document.getElementById('customPos').value)\">Move X Cells</button></div>";
+        html += "<div style='display:flex; gap:5px;'> <input id='customPos' value='-1'> <button class='cmd' onclick=\"fetch('/pos?val='+document.getElementById('customPos').value)\">Move X Cells</button></div>";
         html += "<hr style='border-color:#333'>";
         html += "<button class='cmd' onclick=\"fetch('/turn?val=-90')\">Turn Left (-90)</button>";
         html += "<button class='cmd' onclick=\"fetch('/turn?val=90')\">Turn Right (90)</button>";
-        html += "<div style='display:flex; gap:5px;'> <input id='customTurn' value='180'> <button class='cmd' onclick=\"fetch('/turn?val='+document.getElementById('customTurn').value)\">Turn X Deg</button></div>";
+        html += "<div style='display:flex; gap:5px;'> <input id='customTurn' value='0'> <button class='cmd' onclick=\"fetch('/turn?val='+document.getElementById('customTurn').value)\">Turn X Deg</button></div>";
         
         html += "<h3>PID Tuning</h3>";
         html += getParamHTML("Position", _pos, "pos");

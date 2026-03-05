@@ -7,32 +7,39 @@
 Motor leftMotor  = { AIN1, AIN2, PWM_CH_L1, PWM_CH_L2, 0, 0.0f };
 Motor rightMotor = { BIN1, BIN2, PWM_CH_R1, PWM_CH_R2, 0, 0.0f };
 
-void motorsInit()
-{
-  pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
-  pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
+// void motorsInit()
+// {
+//   pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
+//   pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
 
-  pinMode(STBY, OUTPUT);
-  digitalWrite(STBY, HIGH);
+//   pinMode(STBY, OUTPUT);
+//   digitalWrite(STBY, HIGH);
 
-  // Setup PWM channels
-  ledcSetup(PWM_CH_L1, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_L2, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_R1, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_R2, PWM_FREQ, PWM_RESOLUTION);
+//   // Setup PWM channels
+//   ledcSetup(PWM_CH_L1, PWM_FREQ, PWM_RESOLUTION);
+//   ledcSetup(PWM_CH_L2, PWM_FREQ, PWM_RESOLUTION);
+//   ledcSetup(PWM_CH_R1, PWM_FREQ, PWM_RESOLUTION);
+//   ledcSetup(PWM_CH_R2, PWM_FREQ, PWM_RESOLUTION);
 
-  // Attach channels to pins
-  ledcAttachPin(AIN1, PWM_CH_L1);
-  ledcAttachPin(AIN2, PWM_CH_L2);
-  ledcAttachPin(BIN1, PWM_CH_R1);
-  ledcAttachPin(BIN2, PWM_CH_R2);
+//   // Attach channels to pins
+//   ledcAttachPin(AIN1, PWM_CH_L1);
+//   ledcAttachPin(AIN2, PWM_CH_L2);
+//   ledcAttachPin(BIN1, PWM_CH_R1);
+//   ledcAttachPin(BIN2, PWM_CH_R2);
 
-  stopMotors();
-}
+//   stopMotors();
+// }
 
 void setMotorCommand(Motor *m, int cmd)
 {
-  cmd = constrain(cmd, -255, 255);
+  // remove rough deadzone, makes it less jumpy
+  cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
+  if (cmd > 0) {
+    cmd += MOTOR_PWM_MIN;
+  }
+  else {
+    cmd -= MOTOR_PWM_MIN;
+  }
   m->command = cmd;
 
   if (cmd > 0) {
@@ -53,17 +60,17 @@ void stopMotors()
   setMotorCommand(&rightMotor, 0);
 }
 
-void brakeMotors(uint32_t ms)
-{
-  // Short brake: IN1=IN2=HIGH for both motors
-  ledcWrite(leftMotor.chFwd, 255);
-  ledcWrite(leftMotor.chRev, 255);
-  ledcWrite(rightMotor.chFwd, 255);
-  ledcWrite(rightMotor.chRev, 255);
+// void brakeMotors(uint32_t ms)
+// {
+//   // Short brake: IN1=IN2=HIGH for both motors
+//   ledcWrite(leftMotor.chFwd, 255);
+//   ledcWrite(leftMotor.chRev, 255);
+//   ledcWrite(rightMotor.chFwd, 255);
+//   ledcWrite(rightMotor.chRev, 255);
 
-  delay(ms);
-  stopMotors();
-}
+//   delay(ms);
+//   stopMotors();
+// }
 
 
 
@@ -75,19 +82,27 @@ namespace motors
 {
 
 // set control loop frequencies!!!
-const int POSITION_PID_DELAY_MS = 5; // 20ms = 50hz
-const int VELOCITY_PID_DELAY_MS = 1;  // 5ms = 200Hz
+// const int POSITION_PID_DELAY_MS = 5;
+// const int VELOCITY_PID_DELAY_MS = 1;
+const int POSITION_PID_DELAY_MS = 10; // 10ms = 100hz
+const int VELOCITY_PID_DELAY_MS = 2;  // 2ms = 500Hz
 
 // SET MOTOR ACTIVE ZONE
-const int MOTOR_PWM_MIN = 130;
-const int MOTOR_PWM_MAX = 255;
-const int MOTOR_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
+// const int MOTOR_PWM_MIN = 100;
+// const int MOTOR_PWM_MAX = 255;
+// const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
+// moved to config
 
 // assuming: control loop is 200hz = 5ms
 // max change in PWM to prevent slipping?
 const int MAX_DELTA_PWM = 20;
 // or max change in velocity to prevent slipping
 const int MAX_ACCEL = 20; // idk what units
+
+// const float COMPLETE_ACTION_PERCENT = 0.95; // action will be done at x% of the target
+const float COMPLETE_POSITION_ERR = 0.5f; // action is done when within 0.5cm
+const float COMPLETE_ROTATION_ERR = 1.0f; // action is done when within 1.0 degree
+bool isInAction = false;  // bool to track action
 
 
 uint32_t nowMs;
@@ -96,16 +111,13 @@ uint32_t last_vel_pid_tick;
 
 
 
-float rightMotorRPM;
-float leftMotorRPM;
-
-float lastRightPWM;
+float lastRightPWM; // used to limit accel. Probably the wrong way to do it
 float lastLeftPWM;
 
 float angularVelOffset;
 
 
-// encoder based
+
 float readTurn() {
   
 
@@ -125,74 +137,97 @@ float readTurn() {
   float alpha = 0.95;
 
   float fused = (alpha * gyroDeg) + ((1-alpha) * encoderDeg);
+
+
+
+  // also read L and R ToF sensors if enabled
+  // during turns it shouldnt be enabled, going straights it should be enabled
+  /*
+  if (enableSideTOFTracking) {
+    // offset_translation = ((readLeftTOF() - SIDE_TOF_TO_WALL) % 18.0f + (readRightTOF() - SIDE_TOF_TO_WALL) % 18.0f) / 2;
+    // somehow adjust fused based on offset_translation
+  }
+  
+  */
+
   return fused;
 }
-
-// gyro based
-// float readTurn() {
-//   rightMotorRPM = readRPM(rightEncoder);
-//   leftMotorRPM = readRPM(leftEncoder);
-
-
-//   gyroUpdate();
-//   float deg = gyroHeadingDeg();
-//   Serial.print("\tdeg=");
-//   Serial.print(deg);
-//   return deg;
-// }
 void updateTurn(float output) {
   angularVelOffset = output;
 }
 
 float readPosition() {
-  float R = readEncoderCounts(rightEncoder);
-  float L = readEncoderCounts(leftEncoder);
-  float counts = (R + L) / 2;
+  // float R = readEncoderCounts(rightEncoder);
+  // float L = readEncoderCounts(leftEncoder);
+  // float counts = (R + L) / 2;
+  float counts = readAvgPosition();
 
   // float frontDist = 
+
+  // FUSE ENCODER DATA WITH FRONT SENSOR DATA
 
   return counts;
 }
 void updatePosition(float targetVel) {
-  motorRightVelocityPID.setTarget(targetVel + angularVelOffset);
-  motorLeftVelocityPID.setTarget(targetVel - angularVelOffset);
+  rightVelocityPID.setTarget(targetVel + angularVelOffset);
+  leftVelocityPID.setTarget(targetVel - angularVelOffset);
 }
 
 float readRightVelocity() {
-  return rightMotorRPM;
+  // return rightMotorRPM;
+  return readRPM(rightEncoder);
 }
 void updateRightVelocity(float pwm) {
-  pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM);
+  pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
   setMotorCommand(&rightMotor, pwm);
   lastRightPWM = pwm;
 }
 
 float readLeftVelocity() {
-  return leftMotorRPM;
+  // return leftMotorRPM;
+  return readRPM(leftEncoder);
 }
 void updateLeftVelocity(float pwm) {
-  pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM);
+  pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
   setMotorCommand(&leftMotor, pwm);
   lastLeftPWM = pwm;
 }
 
-float motor_pos_P = 0.5f;
-float motor_pos_I = 0.0f;
+// float motor_pos_P = 0.5f;
+// float motor_pos_I = 0.0f;
+// float motor_pos_D = 0.0f;
+
+// float motor_turn_P = 0.4f;
+// float motor_turn_I = 0.0f;
+// float motor_turn_D = 0.0f;
+
+// float motor_vel_P = 0.001f;
+// float motor_vel_I = 0.05f;
+// float motor_vel_D = 0.01f;
+
+
+float motor_pos_P = 0.6f;
+float motor_pos_I = 0.00001f;
 float motor_pos_D = 0.0f;
 
 float motor_turn_P = 0.4f;
-float motor_turn_I = 0.0f;
+float motor_turn_I = 0.00001f;
 float motor_turn_D = 0.0f;
 
-float motor_vel_P = 0.001f;
-float motor_vel_I = 0.05f;
-float motor_vel_D = 0.01f;
+// float motor_vel_P = 0.0008f;
+// float motor_vel_I = 0.008f;
+// float motor_vel_D = 0.0f;
+float motor_vel_P = 0.0012f;
+float motor_vel_I = 0.002f;
+float motor_vel_D = 0.0f;
 
-PIDController<float> motorTurnPID(motor_turn_P, motor_turn_I, motor_turn_D, readTurn, updateTurn);
-PIDController<float> motorPositionPID(motor_pos_P, motor_pos_I, motor_pos_D, readPosition, updatePosition);
 
-PIDController<float> motorRightVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readRightVelocity, updateRightVelocity);
-PIDController<float> motorLeftVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readLeftVelocity, updateLeftVelocity);
+
+PIDController<float> rotationPID(motor_turn_P, motor_turn_I, motor_turn_D, readTurn, updateTurn);
+PIDController<float> positionPID(motor_pos_P, motor_pos_I, motor_pos_D, readPosition, updatePosition);
+
+PIDController<float> rightVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readRightVelocity, updateRightVelocity);
+PIDController<float> leftVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readLeftVelocity, updateLeftVelocity);
 
 
 /*
@@ -226,15 +261,27 @@ void init()
 
   // motorPositionPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // outputs velocity..? no need for bounds? or what
   // motorVelocityPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
-  motorRightVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
-  motorLeftVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
-  motorTurnPID.setOutputBounds(-MOTOR_PWM_MAX*2, MOTOR_PWM_MAX*2);
-  // motorTurnPID.setTarget(0);
+  // rightVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
+  // leftVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
+  // rotationPID.setOutputBounds(-MOTOR_PWM_MAX*2, MOTOR_PWM_MAX*2);
+
+  // with deadzone
+  rightVelocityPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
+  leftVelocityPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
+  rotationPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE*2, MOTOR_ACTIVE_PWM_RANGE*2);
+  
 }
 
 void setCommand(Motor *m, int cmd)
 {
-  cmd = constrain(cmd, -255, 255);
+  // remove rough deadzone, makes it less jumpy
+  cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
+  if (cmd > 0) {
+    cmd += MOTOR_PWM_MIN;
+  }
+  else {
+    cmd -= MOTOR_PWM_MIN;
+  }
   m->command = cmd;
 
   if (cmd > 0) {
@@ -254,19 +301,27 @@ void tick() {
   if (nowMs > last_pos_pid_tick + POSITION_PID_DELAY_MS) {
     last_pos_pid_tick = nowMs;
     
-    motorTurnPID.tick();
-    motorPositionPID.tick();
+    // tick PID controls
+    rotationPID.tick();
+    positionPID.tick();
+
+    // check if targets are if within the done area
+    if (abs(rotationPID.getError()) < COMPLETE_ROTATION_ERR &&
+        abs(positionPID.getError()) / COUNTS_PER_CM < COMPLETE_POSITION_ERR) {
+      // action is done!
+      isInAction = false;
+    }
 
   }
   if (nowMs > last_vel_pid_tick + VELOCITY_PID_DELAY_MS) {
     last_vel_pid_tick = nowMs;
 
-
-    rightMotorRPM = readRPM(rightEncoder);
-    leftMotorRPM = readRPM(leftEncoder);
-
-    motorRightVelocityPID.tick();
-    motorLeftVelocityPID.tick();
+    // rightMotorRPM = readRPM(rightEncoder);
+    // leftMotorRPM = readRPM(leftEncoder);
+    
+    // tick PID controls
+    rightVelocityPID.tick();
+    leftVelocityPID.tick();
 
 
   }
@@ -289,4 +344,22 @@ void brake(uint32_t ms)
   delay(ms);
   stopMotors();
 }
+
+
+void setTargetPosition(float cm) {
+  if (isInAction) return;
+  isInAction = true;
+
+  positionPID.setTarget(readAvgPosition() + cm * COUNTS_PER_CM);
 }
+
+void setTargetRotation(float deg) {
+  if (isInAction) return;
+  isInAction = true;
+  
+  float currentHeading = readDeg();
+  rotationPID.setTarget(currentHeading + deg);
+
+}
+
+}//namespace motors

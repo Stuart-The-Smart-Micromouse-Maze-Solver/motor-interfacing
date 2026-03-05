@@ -73,8 +73,8 @@ float readDeg()
 {
   float relative = integratedDeg - zeroOffsetDeg;
 
-  while (relative > 180.0f)  relative -= 360.0f;
-  while (relative < -180.0f) relative += 360.0f;
+  // while (relative > 180.0f)  relative -= 360.0f;
+  // while (relative < -180.0f) relative += 360.0f;
 
   return relative;
 }

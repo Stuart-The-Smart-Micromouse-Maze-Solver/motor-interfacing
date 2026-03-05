@@ -126,3 +126,6 @@ float readRPM(Encoder& encoder)
   return revs / dt_min;
 }
 
+float readAvgPosition() {
+  return (readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2.0f;
+}

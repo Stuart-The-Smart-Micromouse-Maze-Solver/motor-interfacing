@@ -29,7 +29,7 @@ void motorsInit();
 void setMotorCommand(Motor* m, int cmd);
 void stopMotors();
 void brakeMotors(uint32_t ms);
-//void brakeStop(uint32_t ms);
+void brakeStop(uint32_t ms);
 
 
 namespace motors 
@@ -40,10 +40,12 @@ float readCountsRight();
 float readCountsLeft();
 void driveMotorRight(float);
 void driveMotorLeft(float);
-extern PIDController<float> motorTurnPID;
-extern PIDController<float> motorPositionPID;
-extern PIDController<float> motorRightVelocityPID;
-extern PIDController<float> motorLeftVelocityPID;
+extern PIDController<float> rotationPID;
+extern PIDController<float> positionPID;
+extern PIDController<float> rightVelocityPID;
+extern PIDController<float> leftVelocityPID;
+
+extern bool isInAction;
 
 void init();
 void setCommand(Motor* m, int cmd);
@@ -51,5 +53,8 @@ void tick();
 void stop();
 void brake(uint32_t ms);
 
+
+void setTargetPosition(float cm);
+void setTargetRotation(float deg);
 
 }
