@@ -2,21 +2,21 @@
 #include <Arduino.h>
 
 // ================= Pins =================
-constexpr int SDA_PIN = 17;
-constexpr int SCL_PIN = 16;
+constexpr int SDA2_PIN = 40;
+constexpr int SCL2_PIN = 39;
 
 // Motor driver 
-constexpr int AIN1 = 37;
-constexpr int AIN2 = 36;
-constexpr int BIN1 = 40;
-constexpr int BIN2 = 39;
-constexpr int STBY = 38;
+constexpr int AIN1 = 11;
+constexpr int AIN2 = 10;
+constexpr int BIN1 = 13;
+constexpr int BIN2 = 14;
+constexpr int STBY = 12;
 
 // Encoder 
-constexpr int ENC_A = 21;
-constexpr int ENC_B = 47;
-constexpr int ENC_C = 1;
-constexpr int ENC_D = 2;
+constexpr int ENC_A = 3;
+constexpr int ENC_B = 46;
+constexpr int ENC_C = 18;
+constexpr int ENC_D = 8;
 
 // PWM Configuration
 constexpr int PWM_FREQ = 20000;

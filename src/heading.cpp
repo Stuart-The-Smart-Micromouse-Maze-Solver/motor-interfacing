@@ -16,7 +16,7 @@ static uint32_t lastUpdate = 0;
 
 bool gyroInit()
 {
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.begin(SDA2_PIN, SCL2_PIN);
 
   if (!gyro.begin()) {
     gyroValid = false;

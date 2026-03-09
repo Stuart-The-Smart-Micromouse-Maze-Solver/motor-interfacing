@@ -171,7 +171,7 @@ void loop()
     if (nowMs > temp_timer_outer + 100) {
       // log 10hz
       temp_timer_outer = nowMs;
-      robotServer.log("Gyro IMU/ENC: " + String(readDeg()) + " / " + String(COUNTS_OFFSET_PER_DEG * (readEncoderCounts(rightEncoder) - readEncoderCounts(leftEncoder))));
+      // robotServer.log("Gyro IMU/ENC: " + String(readDeg()) + " / " + String(COUNTS_OFFSET_PER_DEG * (readEncoderCounts(rightEncoder) - readEncoderCounts(leftEncoder))));
     }
   }
   needsRestart = false;

@@ -129,7 +129,7 @@ float readTurn() {
 
   // get absolute adjustment from gyro????
   gyroUpdate();
-  float gyroDeg = readDeg();
+  float gyroDeg = -readDeg(); // yo negative??
   
 
   // RANSAC? how would this work lol
@@ -178,8 +178,8 @@ float readRightVelocity() {
   return readRPM(rightEncoder);
 }
 void updateRightVelocity(float pwm) {
-  pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
-  setMotorCommand(&rightMotor, pwm);
+  // pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
+  setCommand(&rightMotor, pwm);
   lastRightPWM = pwm;
 }
 
@@ -188,8 +188,8 @@ float readLeftVelocity() {
   return readRPM(leftEncoder);
 }
 void updateLeftVelocity(float pwm) {
-  pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
-  setMotorCommand(&leftMotor, pwm);
+  // pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
+  setCommand(&leftMotor, pwm);
   lastLeftPWM = pwm;
 }
 
@@ -206,19 +206,19 @@ void updateLeftVelocity(float pwm) {
 // float motor_vel_D = 0.01f;
 
 
-float motor_pos_P = 0.6f;
-float motor_pos_I = 0.00001f;
+float motor_pos_P = 0.6f;     //0.6
+float motor_pos_I = 0.00001f; //0.0
 float motor_pos_D = 0.0f;
 
-float motor_turn_P = 0.4f;
-float motor_turn_I = 0.00001f;
+float motor_turn_P = 0.4f;    //0.8
+float motor_turn_I = 0.00001f;    //0.0
 float motor_turn_D = 0.0f;
 
 // float motor_vel_P = 0.0008f;
 // float motor_vel_I = 0.008f;
 // float motor_vel_D = 0.0f;
-float motor_vel_P = 0.0012f;
-float motor_vel_I = 0.002f;
+float motor_vel_P = 0.0012f;    // 0.04
+float motor_vel_I = 0.002f;     // 0.04? currently too slow so think you need these or higher
 float motor_vel_D = 0.0f;
 
 
@@ -302,7 +302,7 @@ void tick() {
     last_pos_pid_tick = nowMs;
     
     // tick PID controls
-    rotationPID.tick();
+    rotationPID.tick(); // in this order
     positionPID.tick();
 
     // check if targets are if within the done area
