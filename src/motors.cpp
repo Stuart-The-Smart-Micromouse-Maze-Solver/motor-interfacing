@@ -32,25 +32,26 @@ Motor rightMotor = { BIN1, BIN2, PWM_CH_R1, PWM_CH_R2, 0, 0.0f };
 
 void setMotorCommand(Motor *m, int cmd)
 {
-  // remove rough deadzone, makes it less jumpy
   cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
-  if (cmd > 0) {
-    cmd += MOTOR_PWM_MIN;
+
+  if (cmd == 0) {
+    m->command = 0;
+    ledcWrite(m->chFwd, 0);
+    ledcWrite(m->chRev, 0);
+    
+    return;
   }
-  else {
-    cmd -= MOTOR_PWM_MIN;
-  }
-  m->command = cmd;
+
+  int pwm = abs(cmd) + MOTOR_PWM_MIN;
+  pwm = constrain(pwm, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
+  m->command = (cmd > 0) ? pwm : -pwm;
 
   if (cmd > 0) {
-    ledcWrite(m->chFwd, cmd);
+    ledcWrite(m->chFwd, pwm);
     ledcWrite(m->chRev, 0);
-  } else if (cmd < 0) {
-    ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, -cmd);
   } else {
     ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, 0);
+    ledcWrite(m->chRev, pwm);
   }
 }
 
@@ -307,23 +308,26 @@ void setCommand(Motor *m, int cmd)
 {
   // remove rough deadzone, makes it less jumpy
   cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
-  if (cmd > 0) {
-    cmd += MOTOR_PWM_MIN;
+
+  // command of 0 catch
+  if (cmd == 0){
+    m->command = 0;
+    ledcWrite(m->chFwd, 0);
+    ledcWrite(m->chRev, 0);
+
+    return;
   }
-  else {
-    cmd -= MOTOR_PWM_MIN;
-  }
-  m->command = cmd;
+  int pwm = abs(cmd) + MOTOR_PWM_MIN;
+  pwm = constrain(pwm, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
+  m->command = (cmd > 0) ? pwm : -pwm;
 
   if (cmd > 0) {
-    ledcWrite(m->chFwd, cmd);
+    ledcWrite(m->chFwd, pwm);
     ledcWrite(m->chRev, 0);
-  } else if (cmd < 0) {
+  } 
+  else {
     ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, -cmd);
-  } else {
-    ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, 0);
+    ledcWrite(m->chRev, pwm);
   }
 }
 
