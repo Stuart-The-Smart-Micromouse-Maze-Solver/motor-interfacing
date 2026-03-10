@@ -44,10 +44,18 @@ void setup()
   Serial.begin(115200);
   delay(1000);
 
-  // motorsInit(); 
-  motors::init();
-  encodersInit();
-  //motionInit();
+  // // motorsInit(); 
+  // motors::init();
+  // encodersInit();
+  // //motionInit();
+
+    Serial.println("Init complete");
+
+  if (distanceInit()) {
+    Serial.println("Distance Sensors: OK");
+  } else {
+    Serial.println("Distance Sensors: FAILED (Check wiring/XSHUT)");
+  }
 
   if (gyroInit()) {
     gyroQuickBiasCal(4000); // pre-bake the offset? so boot is faster?
@@ -82,6 +90,7 @@ void setup()
 
 void loop()
 {
+  // --- 3. SENSOR UPDATES ---
   static uint32_t lastUs = micros();
   uint32_t nowUs = micros();
   float dt = (nowUs - lastUs) / 1e6f;

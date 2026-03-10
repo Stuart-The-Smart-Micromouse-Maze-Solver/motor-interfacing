@@ -12,13 +12,13 @@ static float integratedDeg = 0.0f;   // continuous integration
 static float zeroOffsetDeg = 0.0f;   // reference heading
 
 static float gyroBiasZ = 0.0f;
-static uint32_t lastUpdate = 0;
+static uint32_t lastIMUUpdate = 0;
+extern TwoWire I2CBus1;
 
 bool gyroInit()
 {
-  Wire.begin(SDA2_PIN, SCL2_PIN);
-
-  if (!gyro.begin()) {
+  
+  if (!gyro.begin(33U, &I2CBus1)) {
     gyroValid = false;
     return false;
   }
@@ -29,7 +29,7 @@ bool gyroInit()
   integratedDeg = 0.0f;
   zeroOffsetDeg = 0.0f;
   gyroBiasZ = 0.0f;
-  lastUpdate = micros();
+  lastIMUUpdate = micros();
 
   return true;
 }
@@ -57,8 +57,8 @@ void gyroUpdate()
   if (!gyroValid) return;
 
   uint32_t now = micros();
-  float dt = (now - lastUpdate) * 1e-6f;
-  lastUpdate = now;
+  float dt = (now - lastIMUUpdate) * 1e-6f;
+  lastIMUUpdate = now;
 
   sensors_event_t g;
   if (!gyro.getEvent(&g)) return;
