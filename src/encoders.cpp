@@ -120,7 +120,7 @@ float readRPM(Encoder& encoder)
   encoder.lastCounts = c;
   encoder.lastReadTime = now;
 
-  float dt_min = dt_ms / 60000.0f;   // ms → minutes
+  float dt_min = dt_ms / 60000.0f;   // ms -> minutes
   float revs = dc / (float)COUNTS_PER_REV;
 
   return revs / dt_min;

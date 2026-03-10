@@ -95,9 +95,8 @@ const int VELOCITY_PID_DELAY_MS = 2;  // 2ms = 500Hz
 
 // assuming: control loop is 200hz = 5ms
 // max change in PWM to prevent slipping?
-const int MAX_DELTA_PWM = 20;
+// const int MAX_DELTA_PWM = 20;
 // or max change in velocity to prevent slipping
-const int MAX_ACCEL = 20; // idk what units
 
 // const float COMPLETE_ACTION_PERCENT = 0.95; // action will be done at x% of the target
 const float COMPLETE_POSITION_ERR = 0.5f; // action is done when within 0.5cm
@@ -111,8 +110,10 @@ uint32_t last_vel_pid_tick;
 
 
 
-float lastRightPWM; // used to limit accel. Probably the wrong way to do it
-float lastLeftPWM;
+const int MAX_ACCEL = 5; // idk what units or what to even use
+float lastRightVel;
+float lastLeftVel;
+
 
 float angularVelOffset;
 
@@ -169,8 +170,19 @@ float readPosition() {
   return counts;
 }
 void updatePosition(float targetVel) {
+  float currRightVel = targetVel + angularVelOffset;
+  float currLeftVel = targetVel - angularVelOffset;
+
+  // clamp to limit accel
+  currRightVel = constrain(currRightVel, lastRightVel-MAX_ACCEL, lastRightVel+MAX_ACCEL);
+  currLeftVel = constrain(currLeftVel, lastLeftVel-MAX_ACCEL, lastLeftVel+MAX_ACCEL);
+
+
   rightVelocityPID.setTarget(targetVel + angularVelOffset);
   leftVelocityPID.setTarget(targetVel - angularVelOffset);
+
+  lastRightVel = currRightVel;
+  lastLeftVel = currLeftVel;
 }
 
 float readRightVelocity() {
@@ -180,7 +192,7 @@ float readRightVelocity() {
 void updateRightVelocity(float pwm) {
   // pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
   setCommand(&rightMotor, pwm);
-  lastRightPWM = pwm;
+  // lastRightPWM = pwm;
 }
 
 float readLeftVelocity() {
@@ -190,35 +202,20 @@ float readLeftVelocity() {
 void updateLeftVelocity(float pwm) {
   // pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
   setCommand(&leftMotor, pwm);
-  lastLeftPWM = pwm;
+  // lastLeftPWM = pwm;
 }
 
-// float motor_pos_P = 0.5f;
-// float motor_pos_I = 0.0f;
-// float motor_pos_D = 0.0f;
 
-// float motor_turn_P = 0.4f;
-// float motor_turn_I = 0.0f;
-// float motor_turn_D = 0.0f;
+float motor_pos_P = 0.8f;     //0.6
+float motor_pos_I = 0.0f; //0.0
+float motor_pos_D = 0.0001f;
 
-// float motor_vel_P = 0.001f;
-// float motor_vel_I = 0.05f;
-// float motor_vel_D = 0.01f;
-
-
-float motor_pos_P = 0.6f;     //0.6
-float motor_pos_I = 0.00001f; //0.0
-float motor_pos_D = 0.0f;
-
-float motor_turn_P = 0.4f;    //0.8
-float motor_turn_I = 0.00001f;    //0.0
+float motor_turn_P = 1.0f;    //0.8
+float motor_turn_I = 0.0f;    //0.0
 float motor_turn_D = 0.0f;
 
-// float motor_vel_P = 0.0008f;
-// float motor_vel_I = 0.008f;
-// float motor_vel_D = 0.0f;
-float motor_vel_P = 0.0012f;    // 0.04
-float motor_vel_I = 0.002f;     // 0.04? currently too slow so think you need these or higher
+float motor_vel_P = 0.2f;    // 0.04
+float motor_vel_I = 0.04f;     // 0.04? currently too slow so think you need these or higher
 float motor_vel_D = 0.0f;
 
 
