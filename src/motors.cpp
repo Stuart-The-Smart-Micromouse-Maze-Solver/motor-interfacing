@@ -38,7 +38,7 @@ void setMotorCommand(Motor *m, int cmd)
     m->command = 0;
     ledcWrite(m->chFwd, 0);
     ledcWrite(m->chRev, 0);
-    
+
     return;
   }
 
@@ -213,8 +213,8 @@ void updatePosition(float targetVel) {
   currLeftVel = constrain(currLeftVel, lastLeftVel-MAX_ACCEL, lastLeftVel+MAX_ACCEL);
 
 
-  rightVelocityPID.setTarget(targetVel + angularVelOffset);
-  leftVelocityPID.setTarget(targetVel - angularVelOffset);
+  rightVelocityPID.setTarget(currRightVel);
+  leftVelocityPID.setTarget(currLeftVel);
 
   lastRightVel = currRightVel;
   lastLeftVel = currLeftVel;
