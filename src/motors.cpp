@@ -102,7 +102,7 @@ const int VELOCITY_PID_DELAY_MS = 2;  // 2ms = 500Hz
 const float COMPLETE_POSITION_ERR = 0.5f; // action is done when within 0.5cm
 const float COMPLETE_ROTATION_ERR = 1.0f; // action is done when within 1.0 degree
 bool isInAction = false;  // bool to track action
-
+bool performingTurn;
 
 uint32_t nowMs;
 uint32_t last_pos_pid_tick;
@@ -117,7 +117,7 @@ float lastLeftVel;
 
 float angularVelOffset;
 
-
+float tof_correction_angle;  // made extern float TEMPORARILY
 
 float readTurn() {
   
@@ -135,21 +135,38 @@ float readTurn() {
 
   // RANSAC? how would this work lol
   // RANSAC with encoders and gyro into output in degrees
-  float alpha = 0.95;
-
-  float fused = (alpha * gyroDeg) + ((1-alpha) * encoderDeg);
-
-
-
+  // float alpha = 0.95;
+  float alpha = 1.0f;
+  
+  
+  
   // also read L and R ToF sensors if enabled
   // during turns it shouldnt be enabled, going straights it should be enabled
-  /*
-  if (enableSideTOFTracking) {
+  const float k_wall = 0.5f;  // adjust based on how much angle correction based on ToF reading
+  // float tof_correction_angle;  // made extern float TEMPORARILY
+
+  // if (enableSideTOFTracking) {
+  if (!performingTurn) {
     // offset_translation = ((readLeftTOF() - SIDE_TOF_TO_WALL) % 18.0f + (readRightTOF() - SIDE_TOF_TO_WALL) % 18.0f) / 2;
     // somehow adjust fused based on offset_translation
+    float distRight = getDistanceRight(); // mm
+    float distLeft = getDistanceLeft(); // mm
+    
+    // CHECK IF < 15cm?? CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS 
+    // CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS 
+    if (0 < distRight && distRight < 150 && 0 < distLeft && distLeft < 150) {
+      tof_correction_angle = k_wall * -(distRight - distLeft);
+    }
+    else {
+      tof_correction_angle = 0;
+    }
   }
+  else {
+    tof_correction_angle = 0;
+  }
+    
+    float fused = (alpha * gyroDeg) + ((1-alpha) * encoderDeg) + tof_correction_angle;
   
-  */
 
   return fused;
 }
@@ -161,13 +178,30 @@ float readPosition() {
   // float R = readEncoderCounts(rightEncoder);
   // float L = readEncoderCounts(leftEncoder);
   // float counts = (R + L) / 2;
-  float counts = readAvgPosition();
+  float encoderPos = readAvgPosition();
 
   // float frontDist = 
 
   // FUSE ENCODER DATA WITH FRONT SENSOR DATA
 
-  return counts;
+  int frontMM = getDistanceFront();
+
+  /*
+  // Only trust front ToF when it's reading a close, valid wall
+  if (frontMM > 0 && frontMM < 150) {
+      // Convert mm to encoder counts equivalent
+      // Target: robot should be FRONT_TOF_TO_WALL_CM * 10 mm from front wall
+      float distFromWallMM = (float)frontMM;
+      float targetDistMM   = FRONT_TOF_TO_WALL_CM * 10.0f;
+      float errorMM        = distFromWallMM - targetDistMM;
+
+      // Blend: trust ToF more the closer and more stable it is
+      // Convert mm error to encoder counts and apply a soft correction
+      float tofCorrectionCounts = (errorMM / 10.0f) * COUNTS_PER_CM; // mm->cm->counts
+      return encoderPos + tofCorrectionCounts * 0.5f; // trust ToF 0.5
+  }*/
+
+  return encoderPos;
 }
 void updatePosition(float targetVel) {
   float currRightVel = targetVel + angularVelOffset;
@@ -354,8 +388,11 @@ void setTargetRotation(float deg) {
   if (isInAction) return;
   isInAction = true;
   
-  float currentHeading = readDeg();
-  rotationPID.setTarget(currentHeading + deg);
+  resetDeg();
+  // float currentHeading = readDeg();
+
+  // rotationPID.setTarget(currentHeading + deg);
+  rotationPID.setTarget(deg);
 
 }
 

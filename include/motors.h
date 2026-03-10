@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "PID.h"
 #include "gyro_heading.h"
+#include "distance.h"
 
 // void motorsInit();
 
@@ -46,6 +47,11 @@ extern PIDController<float> rightVelocityPID;
 extern PIDController<float> leftVelocityPID;
 
 extern bool isInAction;
+extern bool performingTurn;
+
+
+// temp variables for testing
+extern float tof_correction_angle;
 
 void init();
 void setCommand(Motor* m, int cmd);

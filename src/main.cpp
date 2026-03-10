@@ -5,8 +5,16 @@
 #include "motion.h"
 #include "config.h"
 #include "server.h"
+#include "distance.h"
+#include <Wire.h>
+#include <FastLED.h>
 
+CRGB leds[1];
 
+void SetLED(CRGB col) {
+  leds[0] = col;
+  FastLED.show();
+}
 RobotServer robotServer(
   &motors::rotationPID,
   &motors::positionPID,
@@ -16,16 +24,16 @@ RobotServer robotServer(
 volatile bool needsRestart = false;
 
 
-void triggerStart() {
+void startButtonClicked() {
   motors::rightVelocityPID.setEnabled(true);
   motors::leftVelocityPID.setEnabled(true);
 }
-void triggerStop() {
+void stopButtonClicked() {
   motors::rightVelocityPID.setEnabled(false);
   motors::leftVelocityPID.setEnabled(false);
   motors::stop();
 }
-void triggerRestart() {
+void restartButtonClicked() {
   needsRestart = true;
 }
 void setTargetPosition(int cellCount) {
@@ -41,20 +49,28 @@ void setTargetTurn(float deg) {
 
 void setup()
 {
-  Serial.begin(115200);
-  delay(1000);
+  // WS2812  or  NEOPIXEL?
+  FastLED.addLeds<WS2812 , RGB_LED_PIN, GRB>(leds, 1).setCorrection(TypicalLEDStrip);
+  FastLED.setBrightness(60);
+  SetLED(CRGB::Black);
 
-  // // motorsInit(); 
-  // motors::init();
-  // encodersInit();
+
+  Serial.begin(115200);
+  delay(500);
+
+  SetLED(CRGB::Blue);  // show blue during initialization
+
+  motors::init();
+  encodersInit();
   // //motionInit();
 
-    Serial.println("Init complete");
+  Serial.println("Init complete");
 
   if (distanceInit()) {
     Serial.println("Distance Sensors: OK");
   } else {
     Serial.println("Distance Sensors: FAILED (Check wiring/XSHUT)");
+    SetLED(CRGB::Red);
   }
 
   if (gyroInit()) {
@@ -62,6 +78,7 @@ void setup()
     Serial.println("Gyro OK");
   } else {
     Serial.println("Gyro NOT found (heading hold disabled)");
+    SetLED(CRGB::Red);
   }
 
 
@@ -69,15 +86,21 @@ void setup()
   xTaskCreatePinnedToCore(
     [](void* p){ 
         robotServer.begin(
-          "MINECRAFT_WIFI", 
-          "ieeeieee", 
-          triggerStart,
-          triggerStop,
-          triggerRestart,
+          WIFI_SSID, 
+          WIFI_PWD, 
+          startButtonClicked,
+          stopButtonClicked,
+          restartButtonClicked,
           setTargetPosition,
           setTargetTurn
         );
-        for(;;) { vTaskDelay(1000 / portTICK_PERIOD_MS); } // Keep task alive
+        // for(;;) { vTaskDelay(1000 / portTICK_PERIOD_MS); distanceUpdateAll(); } // Keep task alive  // UPDATE TOF IN SEPARATE CORE CAUSE ITS SO SLOW
+        TickType_t lastWakeTime = xTaskGetTickCount();
+        for (;;) {
+          distanceUpdateAll();
+          // vTaskDelayUntil(&lastWakeTime, 20 / portTICK_PERIOD_MS);
+          vTaskDelayUntil(&lastWakeTime, 100 / portTICK_PERIOD_MS);
+        };
     },
     "WebServerTask",
     8192,  // Stack size
@@ -86,119 +109,67 @@ void setup()
     NULL,
     0      // Core 0
   );
+
+
+  leds[0] = CRGB::Black;  // turn off after initializing
+  FastLED.show(); 
 }
 
 void loop()
 {
-  // --- 3. SENSOR UPDATES ---
-  static uint32_t lastUs = micros();
-  uint32_t nowUs = micros();
-  float dt = (nowUs - lastUs) / 1e6f;
-  lastUs = nowUs;
   uint32_t nowMs = millis();
 
   uint32_t temp_timer_outer = millis();
-  uint32_t last_PID_tick = millis();
-  
 
-  /*  // TESTING TARGET ENCODER COUNTS
-  Serial.println("START RUNNING 1 CELL (243 counts)");
-  motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + COUNTS_PER_CELL);
-  motors::motorTurnPID.setTarget(0);  // straight
-  while (nowMs < temp_timer_outer + 6000) { // try to run for 5 sec
-    nowMs = millis();
-
-    if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
-      last_PID_tick = nowMs;
-      motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
-      motors::motorPositionPID.tick();
-      motors::motorRightVelocityPID.tick();
-      motors::motorLeftVelocityPID.tick();
-
-      // also run in loop lol
-      // if (random(0, 10) >= 8) {
-      //   robotServer.sendTelemetry(random(0, 100) / 10.0, 20.0, 30.0);
-      // }
-      if (needsRestart) break;
-    }
-    
-  }
-
-  // resetEncoderCounts();
-  temp_timer_outer = millis();
-  Serial.println("START RUNNING 3 CELL (729 counts)");
-  motors::motorPositionPID.setTarget((readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2 + 3 * COUNTS_PER_CELL);
-  motors::motorTurnPID.setTarget(0);  // straight
-  while (nowMs < temp_timer_outer + 10000) { // try to run for 5 sec
-    nowMs = millis();
-
-    if (nowMs > last_PID_tick + 10) { // 10ms = 100Hz
-      last_PID_tick = nowMs;
-      motors::motorTurnPID.tick();  // call in this order!! to be updated with a single function
-      motors::motorPositionPID.tick();
-      motors::motorRightVelocityPID.tick();
-      motors::motorLeftVelocityPID.tick();
-
-      // also run in loop lol
-      // if (random(0, 10) >= 8) {
-      //   robotServer.sendTelemetry(random(0, 100) / 10.0, 20.0, 30.0);
-      // }
-
-      if (needsRestart) break;
-    }
-    
-  }
-  */
-
-  /*
-
-  // general workflow
-  robotServer.log("1. Going straight...");
-  motors::setTargetPosition(18);
-  while (motors::isInAction) {motors::tick();}
-  
-  robotServer.log("2. Turning Right...");
-  motors::setTargetRotation(-90);
-  while (motors::isInAction) {motors::tick();}
-
-  robotServer.log("3. Going straight...");
-  motors::setTargetPosition(18);
-  while (motors::isInAction) {motors::tick();}
-
-  robotServer.log("4. Turning left...");
-  motors::setTargetRotation(90);
-  while (motors::isInAction) {motors::tick();}
-  */
 
   while (!needsRestart) {
     nowMs = millis();
 
-    motors::tick();
+    motors::tick(); // handles frequency correctly
 
     // robotServer.log("Gyro IMU: " + String(gyroHeadingDeg()));
     // robotServer.log("Gyro ENC: " + String(COUNTS_OFFSET_PER_DEG * (readEncoderCounts(rightEncoder) - readEncoderCounts(leftEncoder))));
     if (nowMs > temp_timer_outer + 100) {
-      // log 10hz
       temp_timer_outer = nowMs;
+      // 10hz temp loop
+
+      // distanceUpdateAll();
+
+
       // robotServer.log("Gyro IMU/ENC: " + String(readDeg()) + " / " + String(COUNTS_OFFSET_PER_DEG * (readEncoderCounts(rightEncoder) - readEncoderCounts(leftEncoder))));
+      // robotServer.log("correctionAngle: " + String(motors::tof_correction_angle));
     }
   }
   needsRestart = false;
 
   
   robotServer.log("1. Going straight...");
+  motors::performingTurn = false;
   motors::setTargetPosition(18);
   while (motors::isInAction) {motors::tick();}
   
   robotServer.log("2. Turning Right...");
-  motors::setTargetRotation(-90);
+  motors::performingTurn = true;
+  motors::setTargetRotation(90);
   while (motors::isInAction) {motors::tick();}
 
   robotServer.log("3. Going straight...");
+  motors::performingTurn = false;
   motors::setTargetPosition(18);
   while (motors::isInAction) {motors::tick();}
 
-  robotServer.log("4. Turning left...");
+  robotServer.log("4. Turning Right...");
+  motors::performingTurn = true;
   motors::setTargetRotation(90);
+  while (motors::isInAction) {motors::tick();}
+
+  robotServer.log("5. Going straight...");
+  motors::performingTurn = false;
+  motors::setTargetPosition(18);
+  while (motors::isInAction) {motors::tick();}
+
+  robotServer.log("4. Turning Left...");
+  motors::performingTurn = true;
+  motors::setTargetRotation(-90);
   while (motors::isInAction) {motors::tick();}
 }
