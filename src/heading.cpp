@@ -83,3 +83,26 @@ void resetDeg()
 {
   zeroOffsetDeg = integratedDeg;
 }
+
+bool gyroIsValid()
+{
+  return gyroValid;
+}
+
+float gyroHeadingDeg()
+{
+  return readDeg();
+}
+
+void gyroResetHeading(float headingDeg)
+{
+  zeroOffsetDeg = integratedDeg - headingDeg;
+}
+
+float angleDiffDeg(float target, float current)
+{
+  float diff = target - current;
+  while (diff > 180.0f) diff -= 360.0f;
+  while (diff < -180.0f) diff += 360.0f;
+  return diff;
+}

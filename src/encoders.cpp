@@ -110,17 +110,21 @@ float readRPM(Encoder& encoder)
   int32_t c = encoder.counts;
   interrupts();
 
-  unsigned long now = millis();
-  unsigned long dt_ms = now - encoder.lastReadTime;
+  unsigned long now = micros();
+  unsigned long dt_us = now - encoder.lastReadTime;
 
-  if (dt_ms == 0) return 0.0f;
+  if (encoder.lastReadTime == 0 || dt_us == 0) {
+    encoder.lastCounts = c;
+    encoder.lastReadTime = now;
+    return 0.0f;
+  }
 
   int32_t dc = c - encoder.lastCounts;
 
   encoder.lastCounts = c;
   encoder.lastReadTime = now;
 
-  float dt_min = dt_ms / 60000.0f;   // ms -> minutes
+  float dt_min = dt_us / 60000000.0f; // us -> minutes
   float revs = dc / (float)COUNTS_PER_REV;
 
   return revs / dt_min;

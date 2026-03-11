@@ -31,8 +31,8 @@ constexpr int RGB_LED_PIN = 38; // for state viewing
 
 
 // Wifi Hotspot 
-#define WIFI_SSID "MINECRAFT_WIFI"
-#define WIFI_PWD "ieeeieee"
+#define WIFI_SSID "STUART"
+#define WIFI_PWD "micromouse"
 
 
 // Empirically determined constants: 
@@ -58,3 +58,26 @@ const float FRONT_TOF_TO_WALL_CM = 2.0f;    // estimated for center
 const int MOTOR_PWM_MIN = 100;
 const int MOTOR_PWM_MAX = 255;
 const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
+
+const int LEFT_MOTOR_PWM_MIN  = 100;
+const int RIGHT_MOTOR_PWM_MIN = 108;  // tune this experimentally
+const int MOTOR_CMD_DEADBAND  = 6;
+
+// Maze / navigation
+constexpr int MAZE_SIZE = 8;
+constexpr float CELL_SIZE_CM = 18.0f;
+constexpr int START_ROW = 0;
+constexpr int START_COL = 0;
+constexpr int START_HEADING = 0; // 0=N,1=E,2=S,3=W
+constexpr int WALL_PRESENT_THRESHOLD_MM = 120;
+constexpr int WALL_OPEN_THRESHOLD_MM = 170;
+constexpr int FRONT_BLOCK_THRESHOLD_MM = 75;
+constexpr int FRONT_OBSERVE_MAX_MM = 220;
+constexpr int SIDE_OBSERVE_MAX_MM = 220;
+constexpr int NAV_QUEUE_LEN = 64;
+constexpr int ACTION_TIMEOUT_MS = 5000;
+constexpr float STALL_RPM_THRESHOLD = 5.0f;
+constexpr float STALL_TARGET_RPM_MIN = 35.0f;
+constexpr int STALL_KICK_BOOST = 22;
+constexpr int STALL_KICK_WINDOW_MS = 180;
+constexpr int STALL_ABORT_MS = 1200;

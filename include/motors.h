@@ -32,35 +32,20 @@ void stopMotors();
 void brakeMotors(uint32_t ms);
 void brakeStop(uint32_t ms);
 
+#pragma once
+namespace motors {
+    extern bool isInAction;
+    extern bool performingTurn;
 
-namespace motors 
-{
-float readRPMRight();
-float readRPMLeft();
-float readCountsRight();
-float readCountsLeft();
-void driveMotorRight(float);
-void driveMotorLeft(float);
-extern PIDController<float> rotationPID;
-extern PIDController<float> positionPID;
-extern PIDController<float> rightVelocityPID;
-extern PIDController<float> leftVelocityPID;
+    extern PIDController<float> positionPID;
+    extern PIDController<float> rotationPID;
+    extern PIDController<float> rightVelocityPID;
+    extern PIDController<float> leftVelocityPID;
 
-extern bool isInAction;
-extern bool performingTurn;
-
-
-// temp variables for testing
-extern float tof_correction_angle;
-
-void init();
-void setCommand(Motor* m, int cmd);
-void tick();
-void stop();
-void brake(uint32_t ms);
-
-
-void setTargetPosition(float cm);
-void setTargetRotation(float deg);
-
+    void init();
+    void tick();
+    void stop();
+    void setTargetPosition(float cm);
+    void setTargetRotation(float deg);
+    void setCommand(Motor *m, int cmd);
 }

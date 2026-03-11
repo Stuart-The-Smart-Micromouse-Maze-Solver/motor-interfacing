@@ -14,4 +14,6 @@ int getDistanceFront();
 
 int getDistanceRight();
 
+float getLateralOffsetMM();
+
 #endif // DISTANCE_H
