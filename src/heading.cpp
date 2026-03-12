@@ -13,6 +13,10 @@ static float zeroOffsetDeg = 0.0f;   // reference heading
 
 static float gyroBiasZ = 0.0f;
 static uint32_t lastIMUUpdate = 0;
+
+// Cached bias-corrected gz (rad/s), written by Core 0 via gyroCache()
+static volatile float cachedGz = 0.0f;
+static volatile bool  cacheReady = false;
 extern TwoWire I2CBus1;
 
 bool gyroInit()
@@ -52,19 +56,32 @@ void gyroQuickBiasCal(uint16_t samples)
   zeroOffsetDeg = 0.0f;
 }
 
-void gyroUpdate()
+// Called from Core 0 task — performs the blocking I2C read and caches result.
+void gyroCache()
 {
   if (!gyroValid) return;
+
+  sensors_event_t g;
+  if (!gyro.getEvent(&g)) return;
+
+  cachedGz = g.gyro.z - gyroBiasZ; // rad/s, bias-corrected
+  if (!cacheReady) {
+    lastIMUUpdate = micros();  // anchor dt clock here, not at gyroInit()
+    cacheReady = true;
+  }
+}
+
+// Lightweight integration using cached gz — no I2C, safe to call from Core 1.
+void gyroUpdate()
+{
+  if (!gyroValid || !cacheReady) return;
 
   uint32_t now = micros();
   float dt = (now - lastIMUUpdate) * 1e-6f;
   lastIMUUpdate = now;
 
-  sensors_event_t g;
-  if (!gyro.getEvent(&g)) return;
-
-  float gz = g.gyro.z - gyroBiasZ; // rad/s
-
+  float gz = cachedGz; // read cached value
+  if (fabsf(gz) < 0.01f) return;  // below noise floor — skip integration
   integratedDeg += gz * 57.2957795f * dt; // rad → deg
 }
 

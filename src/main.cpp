@@ -74,7 +74,7 @@ void setup()
   }
 
   if (gyroInit()) {
-    gyroQuickBiasCal(4000); // pre-bake the offset? so boot is faster?
+    // gyroQuickBiasCal(1000);  // ~2s bias calibration at boot
     Serial.println("Gyro OK");
   } else {
     Serial.println("Gyro NOT found (heading hold disabled)");
@@ -96,10 +96,14 @@ void setup()
         );
         // for(;;) { vTaskDelay(1000 / portTICK_PERIOD_MS); distanceUpdateAll(); } // Keep task alive  // UPDATE TOF IN SEPARATE CORE CAUSE ITS SO SLOW
         TickType_t lastWakeTime = xTaskGetTickCount();
+        uint32_t distanceCounter = 0;
         for (;;) {
-          distanceUpdateAll();
-          // vTaskDelayUntil(&lastWakeTime, 20 / portTICK_PERIOD_MS);
-          vTaskDelayUntil(&lastWakeTime, 100 / portTICK_PERIOD_MS);
+          gyroCache(); // fast I2C read (~50-100us), offloaded from Core 1
+          if (++distanceCounter >= 10) {
+            distanceCounter = 0;
+            distanceUpdateAll(); // slower ToF read, run at 100ms
+          }
+          vTaskDelayUntil(&lastWakeTime, 10 / portTICK_PERIOD_MS); // 10ms = 100Hz
         };
     },
     "WebServerTask",
