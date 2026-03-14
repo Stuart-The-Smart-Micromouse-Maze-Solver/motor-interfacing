@@ -1,5 +1,8 @@
 #pragma once
 #include <Arduino.h>
+#include "PID.h"
+#include "gyro_heading.h"
+#include "distance.h"
 
 // void motorsInit();
 
@@ -27,4 +30,37 @@ void motorsInit();
 void setMotorCommand(Motor* m, int cmd);
 void stopMotors();
 void brakeMotors(uint32_t ms);
-//void brakeStop(uint32_t ms);
+void brakeStop(uint32_t ms);
+
+
+namespace motors 
+{
+float readRPMRight();
+float readRPMLeft();
+float readCountsRight();
+float readCountsLeft();
+void driveMotorRight(float);
+void driveMotorLeft(float);
+extern PIDController<float> rotationPID;
+extern PIDController<float> positionPID;
+extern PIDController<float> rightVelocityPID;
+extern PIDController<float> leftVelocityPID;
+
+extern bool isInAction;
+extern bool performingTurn;
+
+
+// temp variables for testing
+extern float tof_correction_angle;
+
+void init();
+void setCommand(Motor* m, int cmd);
+void tick();
+void stop();
+void brake(uint32_t ms);
+
+
+void setTargetPosition(float cm);
+void setTargetRotation(float deg);
+
+}

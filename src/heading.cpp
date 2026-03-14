@@ -7,74 +7,96 @@
 static Adafruit_FXAS21002C gyro = Adafruit_FXAS21002C(0x0021002C);
 
 static bool gyroValid = false;
-static float headingDeg = 0.0f;
+
+static float integratedDeg = 0.0f;   // continuous integration
+static float zeroOffsetDeg = 0.0f;   // reference heading
+
 static float gyroBiasZ = 0.0f;
 static uint32_t lastIMUUpdate = 0;
 
+// Cached bias-corrected gz (rad/s), written by Core 0 via gyroCache()
+static volatile float cachedGz = 0.0f;
+static volatile bool  cacheReady = false;
+extern TwoWire I2CBus1;
+
 bool gyroInit()
 {
-  Wire.begin(SDA_PIN, SCL_PIN);
-
-  if (!gyro.begin()) {
+  
+  if (!gyro.begin(33U, &I2CBus1)) {
     gyroValid = false;
     return false;
   }
 
-  gyroValid = true;
   gyro.setRange(GYRO_RANGE_250DPS);
 
-  headingDeg = 0.0f;
+  gyroValid = true;
+  integratedDeg = 0.0f;
+  zeroOffsetDeg = 0.0f;
   gyroBiasZ = 0.0f;
   lastIMUUpdate = micros();
+
   return true;
-}
-
-bool gyroIsValid() { return gyroValid; }
-
-float gyroHeadingDeg() { return headingDeg; }
-
-void gyroResetHeading(float h)
-{
-  headingDeg = h;
-  lastIMUUpdate = micros();
 }
 
 void gyroQuickBiasCal(uint16_t samples)
 {
   if (!gyroValid) return;
 
-  float sumZ = 0.0f;
+  float sum = 0.0f;
+
   for (uint16_t i = 0; i < samples; i++) {
     sensors_event_t g;
-    if (gyro.getEvent(&g)) sumZ += g.gyro.z;
+    if (gyro.getEvent(&g)) sum += g.gyro.z;
     delay(2);
   }
-  gyroBiasZ = sumZ / samples;
-  gyroResetHeading(0.0f);
+
+  gyroBiasZ = sum / samples;
+
+  integratedDeg = 0.0f;
+  zeroOffsetDeg = 0.0f;
 }
 
-void gyroUpdate()
+// Called from Core 0 task — performs the blocking I2C read and caches result.
+void gyroCache()
 {
   if (!gyroValid) return;
-
-  uint32_t now = micros();
-  float dt = (now - lastIMUUpdate) / 1000000.0f;
-  lastIMUUpdate = now;
 
   sensors_event_t g;
   if (!gyro.getEvent(&g)) return;
 
-  float gz = g.gyro.z - gyroBiasZ; // rad/s
-  headingDeg += (gz * 180.0f / PI) * dt;
-
-  while (headingDeg >= 360.0f) headingDeg -= 360.0f;
-  while (headingDeg < 0.0f)    headingDeg += 360.0f;
+  cachedGz = g.gyro.z - gyroBiasZ; // rad/s, bias-corrected
+  if (!cacheReady) {
+    lastIMUUpdate = micros();  // anchor dt clock here, not at gyroInit()
+    cacheReady = true;
+  }
 }
 
-float angleDiffDeg(float target, float current)
+// Lightweight integration using cached gz — no I2C, safe to call from Core 1.
+void gyroUpdate()
 {
-  float d = target - current;
-  while (d > 180.0f) d -= 360.0f;
-  while (d < -180.0f) d += 360.0f;
-  return d;
+  if (!gyroValid || !cacheReady) return;
+
+  uint32_t now = micros();
+  float dt = (now - lastIMUUpdate) * 1e-6f;
+  lastIMUUpdate = now;
+
+  float gz = cachedGz; // read cached value
+  if (fabsf(gz) < 0.01f) return;  // below noise floor — skip integration
+  integratedDeg += gz * 57.2957795f * dt; // rad → deg
+}
+
+
+float readDeg()
+{
+  float relative = integratedDeg - zeroOffsetDeg;
+
+  // while (relative > 180.0f)  relative -= 360.0f;
+  // while (relative < -180.0f) relative += 360.0f;
+
+  return relative;
+}
+
+void resetDeg()
+{
+  zeroOffsetDeg = integratedDeg;
 }

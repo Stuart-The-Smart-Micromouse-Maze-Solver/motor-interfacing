@@ -78,182 +78,189 @@ static bool dequeueCmd(MotionCmd &out)
 
 
 // -------------------- PID controller --------------------
-class SystemPID {
-public:
-  SystemPID()
-  : distanceKp(0.35f), distanceKi(0.0f), distanceKd(0.0f),
-    encoderKp(0.35f), encoderKi(0.0f), encoderKd(0.0f),
-    distancePrevError(0.0f), encoderPrevError(0.0f),
-    distanceIntegral(0.0f), encoderIntegral(0.0f),
-    basePWM_forward(130.0f), 
-    turnKp(0.0f), turnKi(0.0f), turnKd(0.01f)
+// class SystemPID {
+// public:
+//   SystemPID()
+//   : distanceKp(0.35f), distanceKi(0.0f), distanceKd(0.0f),
+//     encoderKp(0.35f), encoderKi(0.0f), encoderKd(0.0f),
+//     distancePrevError(0.0f), encoderPrevError(0.0f),
+//     distanceIntegral(0.0f), encoderIntegral(0.0f),
+//     basePWM_forward(130.0f), 
+//     turnKp(0.0f), turnKi(0.0f), turnKd(0.01f)
   
-    {}
+//     {}
 
-  void resetTurn()
-  {
-    turnPrevError = 0.0f;
-    turnIntegral = 0.0f;
-  }
+//   void resetTurn()
+//   {
+//     turnPrevError = 0.0f;
+//     turnIntegral = 0.0f;
+//   }
 
-  void reset()
-  {
-    distancePrevError = 0;
-    encoderPrevError  = 0;
-    distanceIntegral  = 0;
-    encoderIntegral   = 0;
-  }
+//   void reset()
+//   {
+//     distancePrevError = 0;
+//     encoderPrevError  = 0;
+//     distanceIntegral  = 0;
+//     encoderIntegral   = 0;
+//   }
 
-  void update(float dt, float leftDistance, float frontDistance, float rightDistance, long remainingCounts)
-  {
-    if (dt <= 0.0f) dt = 1e-3f;
+//   void update(float dt, float leftDistance, float frontDistance, float rightDistance, long remainingCounts)
+//   {
+//     if (dt <= 0.0f) dt = 1e-3f;
 
-    // If sensors missing, disable wall correction
-    if (leftDistance == -1 && rightDistance == -1) {
-      leftDistance = 0;
-      rightDistance = 0;
-    } else {
-      if (leftDistance == -1)  leftDistance  = 75.0f;
-      if (rightDistance == -1) rightDistance = 79.0f;
-    }
+//     // If sensors missing, disable wall correction
+//     if (leftDistance == -1 && rightDistance == -1) {
+//       leftDistance = 0;
+//       rightDistance = 0;
+//     } else {
+//       if (leftDistance == -1)  leftDistance  = 75.0f;
+//       if (rightDistance == -1) rightDistance = 79.0f;
+//     }
 
-    // --- Side (wall) correction ---
-    float currentPosition = constrain(leftDistance, 0, 80) - constrain(rightDistance, 0, 80);
-    float distanceError = 0.0f - currentPosition;
-    distanceIntegral += distanceError * dt;
-    float distanceDerivative = (distanceError - distancePrevError) / dt;
-    distancePrevError = distanceError;
+//     // --- Side (wall) correction ---
+//     float currentPosition = constrain(leftDistance, 0, 80) - constrain(rightDistance, 0, 80);
+//     float distanceError = 0.0f - currentPosition;
+//     distanceIntegral += distanceError * dt;
+//     float distanceDerivative = (distanceError - distancePrevError) / dt;
+//     distancePrevError = distanceError;
 
-    float sideCorrection = (distanceKp * distanceError) + (distanceKi * distanceIntegral) + (distanceKd * distanceDerivative);
+//     float sideCorrection = (distanceKp * distanceError) + (distanceKi * distanceIntegral) + (distanceKd * distanceDerivative);
 
-    // If walls far / not reliable, ignore side correction
-    if (((int)leftDistance >= 40 || (int)leftDistance == 0) &&
-        ((int)rightDistance >= 40 || (int)rightDistance == 0)) {
-      sideCorrection = 0.0f;
-    }
+//     // If walls far / not reliable, ignore side correction
+//     if (((int)leftDistance >= 40 || (int)leftDistance == 0) &&
+//         ((int)rightDistance >= 40 || (int)rightDistance == 0)) {
+//       sideCorrection = 0.0f;
+//     }
 
-    // --- Encoder straightness correction ---
-    long leftCounts  = (long)readEncoderCounts(leftEncoder);
-    long rightCounts = (long)readEncoderCounts(rightEncoder);
+//     // --- Encoder straightness correction ---
+//     long leftCounts  = (long)readEncoderCounts(leftEncoder);
+//     long rightCounts = (long)readEncoderCounts(rightEncoder);
 
-    float currentEncoderDiff = (float)((leftCounts - startL) - (rightCounts - startR));
+//     float currentEncoderDiff = (float)((leftCounts - startL) - (rightCounts - startR));
 
-    float encoderError = 0.0f - currentEncoderDiff;
-    encoderIntegral += encoderError * dt;
-    float encoderDerivative = (encoderError - encoderPrevError) / dt;
-    encoderPrevError = encoderError;
+//     float encoderError = 0.0f - currentEncoderDiff;
+//     encoderIntegral += encoderError * dt;
+//     float encoderDerivative = (encoderError - encoderPrevError) / dt;
+//     encoderPrevError = encoderError;
 
-    float encoderCorrection = (encoderKp * encoderError) + (encoderKi * encoderIntegral) + (encoderKd * encoderDerivative);
+//     float encoderCorrection = (encoderKp * encoderError) + (encoderKi * encoderIntegral) + (encoderKd * encoderDerivative);
 
-    //float base = basePWM_forward;
+//     //float base = basePWM_forward;
 
-    // dynamic speed profile (scaled by distance)
-    float base = 0.0f;
-    float progress = targetCounts - remainingCounts;
+//     // dynamic speed profile (scaled by distance)
+    
+//     float base = 0.0f;
+//     float progress = targetCounts - remainingCounts;
 
-    float cells = (float)targetCounts / (float)COUNTS_PER_CELL;
+//     float cells = (float)targetCounts / (float)COUNTS_PER_CELL;
 
-    // Short moves -> lower max; long moves -> higher min
-    float minRun = (cells >= 4.0f) ? 160.0f : (cells >= 3.0f ? 160.0f : 155.0f);
-    float maxpwm = (cells <= 2.0f) ? 160.0f : (cells <= 3.0f ? 165.0f : 165.0f);
-    if (maxpwm < minRun + 5.0f) maxpwm = minRun + 5.0f;
+//     // Short moves -> lower max; long moves -> higher min
+//     float minRun = (cells >= 4.0f) ? 160.0f : (cells >= 3.0f ? 160.0f : 155.0f);
+//     float maxpwm = (cells <= 2.0f) ? 160.0f : (cells <= 3.0f ? 165.0f : 165.0f);
+//     if (maxpwm < minRun + 5.0f) maxpwm = minRun + 5.0f;
 
-    float accelCounts = constrain(targetCounts * 0.25f, 15.0f, 120.0f);
-    float decelCounts = constrain(targetCounts * 0.70f, 70.0f, 260.0f);
+//     float accelCounts = constrain(targetCounts * 0.25f, 15.0f, 120.0f);
+//     float decelCounts = constrain(targetCounts * 0.70f, 70.0f, 260.0f);
 
-    if (progress < accelCounts) {
-      base = minRun + (maxpwm - minRun) * (progress / accelCounts);
-    } else if (remainingCounts < decelCounts) {
-      float decelRatio = remainingCounts / decelCounts;
-      decelRatio = constrain(decelRatio, 0.0f, 1.0f);
-      base = minRun + (maxpwm - minRun) * (decelRatio * decelRatio);
-    } else {
-      base = maxpwm;
-    }
+//     if (progress < accelCounts) {
+//       base = minRun + (maxpwm - minRun) * (progress / accelCounts);
+//     } else if (remainingCounts < decelCounts) {
+//       float decelRatio = remainingCounts / decelCounts;
+//       decelRatio = constrain(decelRatio, 0.0f, 1.0f);
+//       base = minRun + (maxpwm - minRun) * (decelRatio * decelRatio);
+//     } else {
+//       base = maxpwm;
+//     }
 
-    // Softer kick for long runs
-    float kickPwm = (cells >= 4.0f) ? 190.0f : 190.0f;
-    uint32_t kickMs = (cells >= 4.0f) ? 70 : 120;
-    const float kickBiasRight = 8.0f; // compensate stronger left motor during kick
-    bool kickActive = false;
+//     // Softer kick for long runs
+//     float kickPwm = (cells >= 4.0f) ? 190.0f : 190.0f;
+//     uint32_t kickMs = (cells >= 4.0f) ? 70 : 120;
+//     const float kickBiasRight = 8.0f; // compensate stronger left motor during kick
+//     bool kickActive = false;
 
-    if (millis() - moveStartMs < kickMs) {
-      base = kickPwm;
-      kickActive = true;
-    }
+//     if (millis() - moveStartMs < kickMs) {
+//       base = kickPwm;
+//       kickActive = true;
+//     }
+    
 
-    float leftPWM  = base + sideCorrection + encoderCorrection;
-    float rightPWM = base - sideCorrection - encoderCorrection;
+    
 
-    if (kickActive) {
-      leftPWM  -= kickBiasRight;
-      rightPWM += kickBiasRight;
-    }
+//     float leftPWM  = base + sideCorrection + encoderCorrection;
+//     float rightPWM = base - sideCorrection - encoderCorrection;
+
+//     if (kickActive) {
+//       leftPWM  -= kickBiasRight;
+//       rightPWM += kickBiasRight;
+//     }
 
 
-    leftPWM  = constrain(leftPWM,  -255.0f, 255.0f);
-    rightPWM = constrain(rightPWM, -255.0f, 255.0f);
+//     leftPWM  = constrain(leftPWM,  -255.0f, 255.0f);
+//     rightPWM = constrain(rightPWM, -255.0f, 255.0f);
 
-    setMotorCommand(&leftMotor,  (int)(leftPWM));
-    setMotorCommand(&rightMotor, (int)(rightPWM));
-  }
+//     setMotorCommand(&leftMotor,  (int)(leftPWM));
+//     setMotorCommand(&rightMotor, (int)(rightPWM));
+    
+
+//     // motors::rightMotorPID.s
+//   }
  
-  void turnUpdate(float dt, float targetHeadingDeg, long turnStartL, long turnStartR)
-{
-  if (dt <= 0.0f) dt = 1e-3f;
+//   void turnUpdate(float dt, float targetHeadingDeg, long turnStartL, long turnStartR)
+// {
+//   if (dt <= 0.0f) dt = 1e-3f;
 
-  float current = gyroHeadingDeg();
-  float err = angleDiffDeg(targetHeadingDeg, current); 
+//   float current = gyroHeadingDeg();
+//   float err = angleDiffDeg(targetHeadingDeg, current); 
 
-  // PID on heading error
-  turnIntegral += err * dt;
-  turnIntegral = constrain(turnIntegral, -30.0f, 30.0f); // anti-windup
+//   // PID on heading error
+//   turnIntegral += err * dt;
+//   turnIntegral = constrain(turnIntegral, -30.0f, 30.0f); // anti-windup
   
-  float deriv = (err - turnPrevError) / dt;
-  turnPrevError = err;
+//   float deriv = (err - turnPrevError) / dt;
+//   turnPrevError = err;
 
-  float u = turnKp * err + turnKi * turnIntegral + turnKd * deriv;
+//   float u = turnKp * err + turnKi * turnIntegral + turnKd * deriv;
 
-  int dir = (err > 0) ? +1 : -1;
+//   int dir = (err > 0) ? +1 : -1;
 
-  // Base + correction magnitude
-  const int PWM_TURN_BASE = 170;   // This works to break friction
-  const int PWM_TURN_MIN  = 160;
-  const int PWM_TURN_MAX  = 175;  // not sure if too high
+//   // Base + correction magnitude
+//   const int PWM_TURN_BASE = 170;   // This works to break friction
+//   const int PWM_TURN_MIN  = 160;
+//   const int PWM_TURN_MAX  = 175;  // not sure if too high
 
-  float mag = PWM_TURN_BASE + fabsf(u);
-  mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
+//   float mag = PWM_TURN_BASE + fabsf(u);
+//   mag = constrain(mag, (float)PWM_TURN_MIN, (float)PWM_TURN_MAX);
 
-  // Encoder balance to keep pivot symmetric
-  long dL = (long)readEncoderCounts(leftEncoder)  - turnStartL;
-  long dR = (long)readEncoderCounts(rightEncoder) - turnStartR;
-  // For a perfect pivot, dL + dR ~= 0 (left negative, right positive).
-  float balanceErr = (float)(dL + dR);
-  float balanceKp  = 0.20f;              // tune: increase if one wheel overshoots
-  float balanceCorr = balanceKp * balanceErr;
+//   // Encoder balance to keep pivot symmetric
+//   long dL = (long)readEncoderCounts(leftEncoder)  - turnStartL;
+//   long dR = (long)readEncoderCounts(rightEncoder) - turnStartR;
+//   // For a perfect pivot, dL + dR ~= 0 (left negative, right positive).
+//   float balanceErr = (float)(dL + dR);
+//   float balanceKp  = 0.20f;              // tune: increase if one wheel overshoots
+//   float balanceCorr = balanceKp * balanceErr;
 
-  // Apply correction to reduce the wheel that moved more
-  int leftCmd  = (int)constrain((-dir * mag) + balanceCorr, -255.0f, 255.0f);
-  int rightCmd = (int)constrain(( dir * mag) - balanceCorr, -255.0f, 255.0f);
+//   // Apply correction to reduce the wheel that moved more
+//   int leftCmd  = (int)constrain((-dir * mag) + balanceCorr, -255.0f, 255.0f);
+//   int rightCmd = (int)constrain(( dir * mag) - balanceCorr, -255.0f, 255.0f);
 
-  setMotorCommand(&leftMotor, leftCmd);
-  setMotorCommand(&rightMotor, rightCmd);
-}
+//   setMotorCommand(&leftMotor, leftCmd);
+//   setMotorCommand(&rightMotor, rightCmd);
+// }
   
-  float distanceKp, distanceKi, distanceKd;
-  float encoderKp, encoderKi, encoderKd;
-  float turnKp, turnKi, turnKd;
+//   float distanceKp, distanceKi, distanceKd;
+//   float encoderKp, encoderKi, encoderKd;
+//   float turnKp, turnKi, turnKd;
 
-  float distancePrevError, encoderPrevError;
-  float distanceIntegral, encoderIntegral;
+//   float distancePrevError, encoderPrevError;
+//   float distanceIntegral, encoderIntegral;
 
-  float turnPrevError = 0.0f;
-  float turnIntegral = 0.0f;
+//   float turnPrevError = 0.0f;
+//   float turnIntegral = 0.0f;
 
-  float basePWM_forward;
-};
+//   float basePWM_forward;
+// };
 
-static SystemPID PID;
+// static SystemPID PID;
 
 // -------------------- helpers --------------------
 static inline long avgProgressCounts()
@@ -291,7 +298,7 @@ bool motionMoveForwardCells(int cells)
   startR = (long)readEncoderCounts(rightEncoder);
   targetCounts = (long)cells * (long)COUNTS_PER_CELL;
 
-  PID.reset();
+  // PID.reset();
   moveStartMs = millis();
   state = MOTION_FORWARD;
   return true;
@@ -308,7 +315,7 @@ bool motionMoveForwardCm(float cm)
   startR = (long)readEncoderCounts(rightEncoder);
   targetCounts = counts;
 
-  PID.reset();
+  // PID.reset();
   moveStartMs = millis();
   state = MOTION_FORWARD;
   return true;
@@ -333,7 +340,7 @@ bool motionTurnDeg(float deg)
   turnStartR = (long)readEncoderCounts(rightEncoder);
   turnStartMs = millis();
 
-  PID.resetTurn();
+  // PID.resetTurn();
   state = MOTION_TURN;
   return true;
 }
@@ -401,14 +408,14 @@ void motionUpdate(float dt, float leftDist, float frontDist, float rightDist)
       return;
     }
     // Drive using PID straightening
-    PID.update(dt, leftDist, frontDist, rightDist, remaining);
+    // PID.update(dt, leftDist, frontDist, rightDist, remaining);
     return; 
   }
 
   if (state == MOTION_TURN) {
     float err = angleDiffDeg(turnTargetHeading, gyroHeadingDeg());
 
-    PID.turnUpdate(dt, turnTargetHeading, turnStartL, turnStartR);
+    // PID.turnUpdate(dt, turnTargetHeading, turnStartL, turnStartR);
 
     if ((fabsf(err) < TURN_TOL_DEG) && (millis() - turnStartMs > TURN_MIN_MS)) {
       brakeMotors(20);
