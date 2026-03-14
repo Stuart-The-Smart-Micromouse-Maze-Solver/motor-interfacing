@@ -83,10 +83,8 @@ namespace motors
 {
 
 // set control loop frequencies!!!
-// const int POSITION_PID_DELAY_MS = 5;
-// const int VELOCITY_PID_DELAY_MS = 1;
-const int POSITION_PID_DELAY_MS = 10; // 10ms = 100hz
-const int VELOCITY_PID_DELAY_MS = 2;  // 2ms = 500Hz
+const int POSITION_PID_DELAY_MS = 5;  // 5ms = 200Hz
+const int VELOCITY_PID_DELAY_MS = 1;  // 1ms = 1kHz
 
 // SET MOTOR ACTIVE ZONE
 // const int MOTOR_PWM_MIN = 100;
@@ -109,6 +107,10 @@ uint32_t nowMs;
 uint32_t last_pos_pid_tick;
 uint32_t last_vel_pid_tick;
 
+// Encoder counts cached once per position PID tick to avoid multiple critical sections
+static int32_t cachedLeftCounts  = 0;
+static int32_t cachedRightCounts = 0;
+
 
 
 const int MAX_ACCEL = 5; // idk what units or what to even use
@@ -121,10 +123,8 @@ float angularVelOffset;
 float tof_correction_angle;  // made extern float TEMPORARILY
 
 float readTurn() {
-  
-
-  float R = readEncoderCounts(rightEncoder);
-  float L = readEncoderCounts(leftEncoder);
+  float R = (float)cachedRightCounts;
+  float L = (float)cachedLeftCounts;
   
   // convert encoder ticks to heading
   float encoderDeg = COUNTS_OFFSET_PER_DEG * (R - L);
@@ -143,7 +143,7 @@ float readTurn() {
   
   // also read L and R ToF sensors if enabled
   // during turns it shouldnt be enabled, going straights it should be enabled
-  const float k_wall = 0.5f;  // adjust based on how much angle correction based on ToF reading
+  const float k_wall = 0.03f;  // adjust based on how much angle correction based on ToF reading
   // float tof_correction_angle;  // made extern float TEMPORARILY
 
   // if (enableSideTOFTracking) {
@@ -167,19 +167,20 @@ float readTurn() {
   }
     
     float fused = (alpha * gyroDeg) + ((1-alpha) * encoderDeg) + tof_correction_angle;
-  
+
+  float target = rotationPID.getTarget();
+  if (fabsf(fused - target) < 0.5f) return target;
 
   return fused;
 }
 void updateTurn(float output) {
-  angularVelOffset = output;
+  static float smoothed = 0.0f;
+  smoothed = 0.3f * output + 0.7f * smoothed;  // alpha=0.3 (~5 tick time constant)
+  angularVelOffset = smoothed;
 }
 
 float readPosition() {
-  // float R = readEncoderCounts(rightEncoder);
-  // float L = readEncoderCounts(leftEncoder);
-  // float counts = (R + L) / 2;
-  float encoderPos = readAvgPosition();
+  float encoderPos = (cachedRightCounts + cachedLeftCounts) / 2.0f;
 
   // float frontDist = 
 
@@ -247,7 +248,7 @@ float motor_pos_D = 0.0001f;
 
 float motor_turn_P = 1.0f;    //0.8
 float motor_turn_I = 0.0f;    //0.0
-float motor_turn_D = 0.0f;
+float motor_turn_D = 0.1f;
 
 float motor_vel_P = 0.2f;    // 0.04
 float motor_vel_I = 0.04f;     // 0.04? currently too slow so think you need these or higher
@@ -335,7 +336,10 @@ void tick() {
   nowMs = millis();
   if (nowMs > last_pos_pid_tick + POSITION_PID_DELAY_MS) {
     last_pos_pid_tick = nowMs;
-    
+
+    // Single atomic read of both encoders for entire position tick
+    readBothEncoders(cachedLeftCounts, cachedRightCounts);
+
     // tick PID controls
     rotationPID.tick(); // in this order
     positionPID.tick();

@@ -31,8 +31,8 @@ constexpr int RGB_LED_PIN = 38; // for state viewing
 
 
 // Wifi Hotspot 
-#define WIFI_SSID "MINECRAFT_WIFI"
-#define WIFI_PWD "ieeeieee"
+#define WIFI_SSID "SnakeGame"
+#define WIFI_PWD "robot123"
 
 
 // Empirically determined constants: 

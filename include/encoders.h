@@ -22,3 +22,4 @@ void IRAM_ATTR rightEncoderISR();
 
 float readRPM(Encoder& encoder);
 float readAvgPosition();
+void readBothEncoders(int32_t& leftOut, int32_t& rightOut);

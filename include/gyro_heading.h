@@ -3,7 +3,8 @@
 
 bool gyroInit();
 void gyroQuickBiasCal(uint16_t samples = 400);
-void gyroUpdate();
+void gyroCache();   // blocking I2C read — call from Core 0 task
+void gyroUpdate();  // lightweight integration — call from control loop
 
 
 // delete:
