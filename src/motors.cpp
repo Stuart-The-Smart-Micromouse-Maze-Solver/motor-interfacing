@@ -239,17 +239,17 @@ void updateLeftVelocity(float pwm) {
 }
 
 
-float motor_pos_P = 0.8f;
-float motor_pos_I = 0.0f;
-float motor_pos_D = 0.1f; // 0.0001 before micros
+float motor_pos_P = 0.9f;
+float motor_pos_I = 0.001f;
+float motor_pos_D = 0.5f;
 
-float motor_turn_P = 1.0f;    //0.8
-float motor_turn_I = 0.0f;    //0.0
-float motor_turn_D = 0.1f;
+float motor_turn_P = 1.8f;
+float motor_turn_I = 0.0004f;
+float motor_turn_D = 1.0f;
 
-float motor_vel_P = 0.2f;
-float motor_vel_I = 0.00004f; // 0.04 before micros
-float motor_vel_D = 0.0f;
+float motor_vel_P = 1.2f;
+float motor_vel_I = 0.0f;
+float motor_vel_D = 0.1f;
 
 
 
