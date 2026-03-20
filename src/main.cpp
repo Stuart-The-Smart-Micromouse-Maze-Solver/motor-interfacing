@@ -74,7 +74,7 @@ void setup()
   }
 
   if (gyroInit()) {
-    // gyroQuickBiasCal(1000);  // ~2s bias calibration at boot
+    gyroQuickBiasCal(2000);  // ~2s bias calibration at boot
     Serial.println("Gyro OK");
   } else {
     Serial.println("Gyro NOT found (heading hold disabled)");
@@ -82,7 +82,7 @@ void setup()
   }
 
 
-
+  /*
   xTaskCreatePinnedToCore(
     [](void* p){ 
         robotServer.begin(
@@ -104,6 +104,73 @@ void setup()
             distanceUpdateAll(); // slower ToF read, run at 100ms
           }
           vTaskDelayUntil(&lastWakeTime, 10 / portTICK_PERIOD_MS); // 10ms = 100Hz
+        };
+    },
+    "WebServerTask",
+    8192,  // Stack size
+    NULL,
+    1,     // Priority
+    NULL,
+    0      // Core 0
+  );
+  */
+
+  // UPDATED TO INCLUDE FREQUENCY LOGGING. TEMP???
+  xTaskCreatePinnedToCore(
+    [](void* p){ 
+        robotServer.begin(
+          WIFI_SSID, 
+          WIFI_PWD, 
+          startButtonClicked,
+          stopButtonClicked,
+          restartButtonClicked,
+          setTargetPosition,
+          setTargetTurn
+        );
+
+        TickType_t lastWakeTime = xTaskGetTickCount();
+        uint32_t distanceCounter = 0;
+
+        // --- Frequency Tracking Variables ---
+        uint32_t gyroExecCount = 0;
+        uint32_t distExecCount = 0;
+        uint32_t lastFreqLogMs = millis();
+        // ------------------------------------
+
+        for (;;) {
+          // 1. Run Gyro Cache
+          gyroCache(); 
+          gyroExecCount++; // Increment gyro counter
+
+          // 2. Run Distance Update (every 10th loop)
+          // if (++distanceCounter >= 10) {
+          if (++distanceCounter >= 5) { // every 5th loop
+            distanceCounter = 0;
+            distanceUpdateAll(); 
+            distExecCount++; // Increment distance counter
+          }
+
+          // 3. Log Frequency every 1 second (1000ms)
+          uint32_t now = millis();
+          if (now - lastFreqLogMs >= 1000) {
+            float elapsedSec = (now - lastFreqLogMs) / 1000.0f;
+            
+            // Calculate Hz (Count / Seconds)
+            float gyroHz = gyroExecCount / elapsedSec;
+            float distHz = distExecCount / elapsedSec;
+
+            // Send to log
+            String logMsg = "Freq - Gyro: " + String(gyroHz, 1) + "Hz, Dist: " + String(distHz, 1) + "Hz";
+            robotServer.log(logMsg);
+
+            // Reset for next window
+            gyroExecCount = 0;
+            distExecCount = 0;
+            lastFreqLogMs = now;
+          }
+
+          // vTaskDelayUntil(&lastWakeTime, 10 / portTICK_PERIOD_MS); // 100hz
+          vTaskDelayUntil(&lastWakeTime, 2 / portTICK_PERIOD_MS); // 500hz
         };
     },
     "WebServerTask",

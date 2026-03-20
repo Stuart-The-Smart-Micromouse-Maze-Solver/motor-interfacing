@@ -50,7 +50,7 @@ const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.14159f;
 const float WHEEL_BASE_DISTANCE = 6.7;  // slightly measured? but adjusted?? actually measured 8cm
 const float COUNTS_OFFSET_PER_DEG = (1 / COUNTS_PER_CM) * (2 / WHEEL_BASE_DISTANCE) * (180 / 3.1416f);  // I think this is right??? idk
 
-const float SIDE_TOF_TO_WALL_CM = 0.0f; // idk yet
+const float SIDE_TOF_TO_WALL_CM = 4.25f;    // eyeballed?? maybe make sure
 const float FRONT_TOF_TO_WALL_CM = 2.0f;    // estimated for center
 
 
@@ -62,3 +62,7 @@ const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 
 const int MAX_ACCEL = 5; // idk what units or what to even use
 // UPDATE THIS FOR FINAL VERSION
+
+
+// Angle to stop driving at (means someone is probably carrying it)
+const int MOUSE_OFF_GROUND_ANGLE = 30;  // degrees

@@ -3,403 +3,272 @@
 #include "Arduino.h"
 #include "PID.h"
 #include "encoders.h"
+#include "gyro_heading.h"
+#include "distance.h"
 
 Motor leftMotor  = { AIN1, AIN2, PWM_CH_L1, PWM_CH_L2, 0, 0.0f };
 Motor rightMotor = { BIN1, BIN2, PWM_CH_R1, PWM_CH_R2, 0, 0.0f };
 
-// void motorsInit()
-// {
-//   pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
-//   pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
-
-//   pinMode(STBY, OUTPUT);
-//   digitalWrite(STBY, HIGH);
-
-//   // Setup PWM channels
-//   ledcSetup(PWM_CH_L1, PWM_FREQ, PWM_RESOLUTION);
-//   ledcSetup(PWM_CH_L2, PWM_FREQ, PWM_RESOLUTION);
-//   ledcSetup(PWM_CH_R1, PWM_FREQ, PWM_RESOLUTION);
-//   ledcSetup(PWM_CH_R2, PWM_FREQ, PWM_RESOLUTION);
-
-//   // Attach channels to pins
-//   ledcAttachPin(AIN1, PWM_CH_L1);
-//   ledcAttachPin(AIN2, PWM_CH_L2);
-//   ledcAttachPin(BIN1, PWM_CH_R1);
-//   ledcAttachPin(BIN2, PWM_CH_R2);
-
-//   stopMotors();
-// }
 
 void setMotorCommand(Motor *m, int cmd)
 {
-  cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
-
-  if (cmd == 0) {
-    m->command = 0;
-    ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, 0);
-
-    return;
-  }
-
-  int pwm = abs(cmd) + MOTOR_PWM_MIN;
-  pwm = constrain(pwm, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
-  m->command = (cmd > 0) ? pwm : -pwm;
-
-  if (cmd > 0) {
-    ledcWrite(m->chFwd, pwm);
-    ledcWrite(m->chRev, 0);
-  } else {
-    ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, pwm);
-  }
+    cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
+    if (cmd == 0) {
+        m->command = 0;
+        ledcWrite(m->chFwd, 0);
+        ledcWrite(m->chRev, 0);
+        return;
+    }
+    int pwm = constrain(abs(cmd) + MOTOR_PWM_MIN, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
+    m->command = (cmd > 0) ? pwm : -pwm;
+    if (cmd > 0) { ledcWrite(m->chFwd, pwm); ledcWrite(m->chRev, 0); }
+    else         { ledcWrite(m->chFwd, 0);   ledcWrite(m->chRev, pwm); }
 }
 
 void stopMotors()
 {
-  setMotorCommand(&leftMotor, 0);
-  setMotorCommand(&rightMotor, 0);
+    setMotorCommand(&leftMotor, 0);
+    setMotorCommand(&rightMotor, 0);
 }
-
-// void brakeMotors(uint32_t ms)
-// {
-//   // Short brake: IN1=IN2=HIGH for both motors
-//   ledcWrite(leftMotor.chFwd, 255);
-//   ledcWrite(leftMotor.chRev, 255);
-//   ledcWrite(rightMotor.chFwd, 255);
-//   ledcWrite(rightMotor.chRev, 255);
-
-//   delay(ms);
-//   stopMotors();
-// }
-
-
-
-
-
 
 
 namespace motors
 {
 
-// set control loop frequencies!!!
-const int POSITION_PID_DELAY_US = 5000;  // 5ms = 200Hz
-const int VELOCITY_PID_DELAY_US = 1000;  // 1ms = 1kHz
+const int   POSITION_PID_DELAY_US = 5000;
+const int   VELOCITY_PID_DELAY_US = 1000;
+const float COMPLETE_POSITION_ERR = 0.5f;   // cm
+const float COMPLETE_ROTATION_ERR = 3.0f;   // degrees
 
-// SET MOTOR ACTIVE ZONE
-// const int MOTOR_PWM_MIN = 100;
-// const int MOTOR_PWM_MAX = 255;
-// const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
-// moved to config
+// ── Wall correction alpha ─────────────────────────────────────────────────────
+// How aggressively to nudge the gyro toward wall-implied heading each tick.
+// This is applied at 200 Hz (every position PID tick where readTurn is called).
+// 0.10 = 10% correction per tick toward truth — fast enough to catch drift
+//        within one cell at normal speeds.
+// Decrease if corrections feel jerky; increase if drift isn't caught in time.
+// The effective rate is also scaled by distance weight inside correctGyroDriftFromWalls,
+// so single-wall and far-wall corrections are automatically gentler.
+const float WALL_CORRECTION_ALPHA = 0.05f;
 
-// assuming: control loop is 200hz = 5ms
-// max change in PWM to prevent slipping?
-// const int MAX_DELTA_PWM = 20;
-// or max change in velocity to prevent slipping
-
-const float COMPLETE_POSITION_ERR = 0.5f; // action is done when within 0.5cm         // UPDATE THIS FOR FINAL VERSION
-const float COMPLETE_ROTATION_ERR = 3.0f; // action is done when within 1.0 degree    // UPDATE THIS FOR FINAL VERSION
-bool isInAction = false;  // bool to track action
-bool performingTurn;
+bool isInAction     = false;
+bool performingTurn = false;
 
 uint32_t nowUs;
-uint32_t last_pos_pid_tick;
-uint32_t last_vel_pid_tick;
+uint32_t last_pos_pid_tick = 0;
+uint32_t last_vel_pid_tick = 0;
 
-// Encoder counts cached once per position PID tick to avoid multiple critical sections
 static int32_t cachedLeftCounts  = 0;
 static int32_t cachedRightCounts = 0;
 
+float lastRightVel     = 0.0f;
+float lastLeftVel      = 0.0f;
+float angularVelOffset = 0.0f;
+
+float tof_correction_angle = 0.0f;  // logged via server, not used in control
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  readTurn()
+//
+//  Returns gyro heading. Wall correction is applied by calling
+//  correctGyroDriftFromWalls() which nudges readDeg() at the source —
+//  no additive offset here. This prevents double-application.
+//
+//  Supports: both walls, one wall, multi-cell distances.
+//  See heading.cpp correctGyroDriftFromWalls() for geometry details.
+// ─────────────────────────────────────────────────────────────────────────────
+float readTurn()
+{
+    if (!performingTurn) {
+        float distRight = (float)getDistanceRight();
+        float distLeft  = (float)getDistanceLeft();
 
-float lastRightVel;
-float lastLeftVel;
+        // correctGyroDriftFromWalls handles all validity checking internally.
+        // It classifies the readings (both/one/none), applies appropriate weights,
+        // and nudges zeroOffsetDeg. readDeg() below already reflects the correction.
+        correctGyroDriftFromWalls(distLeft, distRight, WALL_CORRECTION_ALPHA);
 
-
-float angularVelOffset;
-
-float tof_correction_angle;  // made extern float TEMPORARILY
-
-float readTurn() {
-  float R = (float)cachedRightCounts;
-  float L = (float)cachedLeftCounts;
-  
-  // convert encoder ticks to heading
-  float encoderDeg = COUNTS_OFFSET_PER_DEG * (R - L);
-
-  // get absolute adjustment from gyro????
-  gyroUpdate();
-  float gyroDeg = -readDeg(); // yo negative??
-  
-
-  // RANSAC? how would this work lol
-  // RANSAC with encoders and gyro into output in degrees
-  // float alpha = 0.95;
-  float alpha = 1.0f;
-  
-  
-  
-  // also read L and R ToF sensors if enabled
-  // during turns it shouldnt be enabled, going straights it should be enabled
-  const float k_wall = 0.03f;  // adjust based on how much angle correction based on ToF reading
-  // float tof_correction_angle;  // made extern float TEMPORARILY
-
-  // if (enableSideTOFTracking) {
-  if (!performingTurn) {
-    // offset_translation = ((readLeftTOF() - SIDE_TOF_TO_WALL) % 18.0f + (readRightTOF() - SIDE_TOF_TO_WALL) % 18.0f) / 2;
-    // somehow adjust fused based on offset_translation
-    float distRight = getDistanceRight(); // mm
-    float distLeft = getDistanceLeft(); // mm
-    
-    if (0 < distRight && distRight < 150 && 0 < distLeft && distLeft < 150) {
-      tof_correction_angle = k_wall * -(distRight - distLeft);
+        // For server logging only — doesn't feed into control
+        tof_correction_angle = 0.3f * (distRight - distLeft);
+    } else {
+        tof_correction_angle = 0.0f;
     }
-    else {
-      tof_correction_angle = 0;
+
+    return -readDeg();   // negative: sign convention for your robot
+}
+
+void updateTurn(float output)
+{
+    static float smoothed = 0.0f;
+    smoothed = 0.3f * output + 0.7f * smoothed;
+    angularVelOffset = smoothed;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  readPosition() / updatePosition()
+// ─────────────────────────────────────────────────────────────────────────────
+float readPosition()
+{
+    return (cachedRightCounts + cachedLeftCounts) / 2.0f;
+
+    // Front ToF fusion — enable once straight-line is solid
+    /*
+    int frontMM = getDistanceFront();
+    if (!performingTurn && frontMM > 10 && frontMM < (int)(FRONT_TOF_TO_WALL_CM * 10.0f + 60.0f)) {
+        float errorMM   = (float)frontMM - FRONT_TOF_TO_WALL_CM * 10.0f;
+        float tofCounts = (errorMM / 10.0f) * COUNTS_PER_CM;
+        return (cachedRightCounts + cachedLeftCounts) / 2.0f + tofCounts * 0.3f;
     }
-  }
-  else {
-    tof_correction_angle = 0;
-  }
-    
-    float fused = (alpha * gyroDeg) + ((1-alpha) * encoderDeg) + tof_correction_angle;
-
-  float target = rotationPID.getTarget();
-  if (fabsf(fused - target) < 0.5f) return target;
-
-  return fused;
-}
-void updateTurn(float output) {
-  static float smoothed = 0.0f;
-  smoothed = 0.3f * output + 0.7f * smoothed;  // alpha=0.3 (~5 tick time constant)
-  angularVelOffset = smoothed;
+    return (cachedRightCounts + cachedLeftCounts) / 2.0f;
+    */
 }
 
-float readPosition() {
-  float encoderPos = (cachedRightCounts + cachedLeftCounts) / 2.0f;
+void updatePosition(float targetVel)
+{
+    float rightTarget = constrain(targetVel + angularVelOffset,
+                                  lastRightVel - MAX_ACCEL, lastRightVel + MAX_ACCEL);
+    float leftTarget  = constrain(targetVel - angularVelOffset,
+                                  lastLeftVel  - MAX_ACCEL, lastLeftVel  + MAX_ACCEL);
 
-  // float frontDist = 
+    rightVelocityPID.setTarget(rightTarget);
+    leftVelocityPID.setTarget(leftTarget);
 
-  // FUSE ENCODER DATA WITH FRONT SENSOR DATA
-
-  int frontMM = getDistanceFront();
-
-  /*
-  // Only trust front ToF when it's reading a close, valid wall
-  if (frontMM > 0 && frontMM < 150) {
-      // Convert mm to encoder counts equivalent
-      // Target: robot should be FRONT_TOF_TO_WALL_CM * 10 mm from front wall
-      float distFromWallMM = (float)frontMM;
-      float targetDistMM   = FRONT_TOF_TO_WALL_CM * 10.0f;
-      float errorMM        = distFromWallMM - targetDistMM;
-
-      // Blend: trust ToF more the closer and more stable it is
-      // Convert mm error to encoder counts and apply a soft correction
-      float tofCorrectionCounts = (errorMM / 10.0f) * COUNTS_PER_CM; // mm->cm->counts
-      return encoderPos + tofCorrectionCounts * 0.5f; // trust ToF 0.5
-  }*/
-
-  return encoderPos;
-}
-void updatePosition(float targetVel) {
-  float currRightVel = targetVel + angularVelOffset;
-  float currLeftVel = targetVel - angularVelOffset;
-
-  // clamp to limit accel
-  currRightVel = constrain(currRightVel, lastRightVel-MAX_ACCEL, lastRightVel+MAX_ACCEL);
-  currLeftVel = constrain(currLeftVel, lastLeftVel-MAX_ACCEL, lastLeftVel+MAX_ACCEL);
-
-
-  rightVelocityPID.setTarget(currRightVel);
-  leftVelocityPID.setTarget(currLeftVel);
-
-  lastRightVel = currRightVel;
-  lastLeftVel = currLeftVel;
+    lastRightVel = rightTarget;
+    lastLeftVel  = leftTarget;
 }
 
-float readRightVelocity() {
-  // return rightMotorRPM;
-  return readRPM(rightEncoder);
-}
-void updateRightVelocity(float pwm) {
-  // pwm = constrain(pwm, lastRightPWM - MAX_DELTA_PWM, lastRightPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
-  setCommand(&rightMotor, pwm);
-  // lastRightPWM = pwm;
-}
-
-float readLeftVelocity() {
-  // return leftMotorRPM;
-  return readRPM(leftEncoder);
-}
-void updateLeftVelocity(float pwm) {
-  // pwm = constrain(pwm, lastLeftPWM - MAX_DELTA_PWM, lastLeftPWM + MAX_DELTA_PWM); // idk if this is the proper way to limit accel
-  setCommand(&leftMotor, pwm);
-  // lastLeftPWM = pwm;
-}
+float readRightVelocity()          { return readRPM(rightEncoder); }
+void  updateRightVelocity(float p) { setCommand(&rightMotor, (int)p); }
+float readLeftVelocity()           { return readRPM(leftEncoder); }
+void  updateLeftVelocity(float p)  { setCommand(&leftMotor,  (int)p); }
 
 
-float motor_pos_P = 0.9f;
-float motor_pos_I = 0.001f;
-float motor_pos_D = 0.5f;
+float motor_pos_P  = 0.9f;
+float motor_pos_I  = 0.0015f;
+float motor_pos_D  = 0.5f;
 
 float motor_turn_P = 1.8f;
 float motor_turn_I = 0.0004f;
 float motor_turn_D = 1.0f;
 
-float motor_vel_P = 1.2f;
-float motor_vel_I = 0.0f;
-float motor_vel_D = 0.1f;
+float motor_vel_P  = 1.2f;
+float motor_vel_I  = 0.0f;
+float motor_vel_D  = 0.1f;
 
+PIDController<float> rotationPID    (motor_turn_P, motor_turn_I, motor_turn_D, readTurn,          updateTurn);
+PIDController<float> positionPID    (motor_pos_P,  motor_pos_I,  motor_pos_D,  readPosition,      updatePosition);
+PIDController<float> rightVelocityPID(motor_vel_P, motor_vel_I,  motor_vel_D,  readRightVelocity, updateRightVelocity);
+PIDController<float> leftVelocityPID (motor_vel_P, motor_vel_I,  motor_vel_D,  readLeftVelocity,  updateLeftVelocity);
 
-
-PIDController<float> rotationPID(motor_turn_P, motor_turn_I, motor_turn_D, readTurn, updateTurn);
-PIDController<float> positionPID(motor_pos_P, motor_pos_I, motor_pos_D, readPosition, updatePosition);
-
-PIDController<float> rightVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readRightVelocity, updateRightVelocity);
-PIDController<float> leftVelocityPID(motor_vel_P, motor_vel_I, motor_vel_D, readLeftVelocity, updateLeftVelocity);
-
-
-/*
-Encoder Count   ->  Position PID (Target: distance)  -> TargetVel
-Encoder RPM     ->  Velocity PID (Target: TargetVel)  -> TargetPWM
-
-*/
 
 void init()
 {
-  pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
-  pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
+    pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
+    pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
+    pinMode(STBY, OUTPUT);
+    digitalWrite(STBY, HIGH);
 
-  pinMode(STBY, OUTPUT);
-  digitalWrite(STBY, HIGH);
+    ledcSetup(PWM_CH_L1, PWM_FREQ, PWM_RESOLUTION);
+    ledcSetup(PWM_CH_L2, PWM_FREQ, PWM_RESOLUTION);
+    ledcSetup(PWM_CH_R1, PWM_FREQ, PWM_RESOLUTION);
+    ledcSetup(PWM_CH_R2, PWM_FREQ, PWM_RESOLUTION);
 
-  // Setup PWM channels
-  ledcSetup(PWM_CH_L1, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_L2, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_R1, PWM_FREQ, PWM_RESOLUTION);
-  ledcSetup(PWM_CH_R2, PWM_FREQ, PWM_RESOLUTION);
+    ledcAttachPin(AIN1, PWM_CH_L1);
+    ledcAttachPin(AIN2, PWM_CH_L2);
+    ledcAttachPin(BIN1, PWM_CH_R1);
+    ledcAttachPin(BIN2, PWM_CH_R2);
 
-  // Attach channels to pins
-  ledcAttachPin(AIN1, PWM_CH_L1);
-  ledcAttachPin(AIN2, PWM_CH_L2);
-  ledcAttachPin(BIN1, PWM_CH_R1);
-  ledcAttachPin(BIN2, PWM_CH_R2);
+    stopMotors();
 
-  stopMotors();
+    positionPID.registerTimeFunction(micros);
+    rotationPID.registerTimeFunction(micros);
+    rightVelocityPID.registerTimeFunction(micros);
+    leftVelocityPID.registerTimeFunction(micros);
 
-
-  positionPID.registerTimeFunction(micros);
-  rotationPID.registerTimeFunction(micros);
-  rightVelocityPID.registerTimeFunction(micros);
-  leftVelocityPID.registerTimeFunction(micros);
-
-  // with deadzone
-  rightVelocityPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
-  leftVelocityPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
-  rotationPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE*2, MOTOR_ACTIVE_PWM_RANGE*2);
-  
+    rightVelocityPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE,   MOTOR_ACTIVE_PWM_RANGE);
+    leftVelocityPID.setOutputBounds (-MOTOR_ACTIVE_PWM_RANGE,   MOTOR_ACTIVE_PWM_RANGE);
+    rotationPID.setOutputBounds     (-MOTOR_ACTIVE_PWM_RANGE*2, MOTOR_ACTIVE_PWM_RANGE*2);
 }
 
 void setCommand(Motor *m, int cmd)
 {
-  // remove rough deadzone, makes it less jumpy
-  cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
-
-  // command of 0 catch
-  if (cmd == 0){
-    m->command = 0;
-    ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, 0);
-
-    return;
-  }
-  int pwm = abs(cmd) + MOTOR_PWM_MIN;
-  pwm = constrain(pwm, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
-  m->command = (cmd > 0) ? pwm : -pwm;
-
-  if (cmd > 0) {
-    ledcWrite(m->chFwd, pwm);
-    ledcWrite(m->chRev, 0);
-  } 
-  else {
-    ledcWrite(m->chFwd, 0);
-    ledcWrite(m->chRev, pwm);
-  }
+    cmd = constrain(cmd, -MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
+    if (cmd == 0) {
+        m->command = 0;
+        ledcWrite(m->chFwd, 0);
+        ledcWrite(m->chRev, 0);
+        return;
+    }
+    int pwm = constrain(abs(cmd) + MOTOR_PWM_MIN, MOTOR_PWM_MIN, MOTOR_PWM_MAX);
+    m->command = (cmd > 0) ? pwm : -pwm;
+    if (cmd > 0) { ledcWrite(m->chFwd, pwm); ledcWrite(m->chRev, 0); }
+    else         { ledcWrite(m->chFwd, 0);   ledcWrite(m->chRev, pwm); }
 }
 
-void tick() {
-  nowUs = micros();
+void tick()
+{
+    nowUs = micros();
 
+    if (nowUs - last_pos_pid_tick >= (uint32_t)POSITION_PID_DELAY_US) {
+        last_pos_pid_tick = nowUs;
 
-  if (nowUs > last_pos_pid_tick + POSITION_PID_DELAY_US) {
-    last_pos_pid_tick = nowUs;
+        readBothEncoders(cachedLeftCounts, cachedRightCounts);
 
-    // Single atomic read of both encoders for entire position tick
-    readBothEncoders(cachedLeftCounts, cachedRightCounts);
+        rotationPID.tick();
+        positionPID.tick();
 
-    // tick PID controls
-    rotationPID.tick(); // in this order
-    positionPID.tick();
-
-    // check if targets are if within the done area
-    if (abs(rotationPID.getError()) < COMPLETE_ROTATION_ERR &&
-        abs(positionPID.getError()) / COUNTS_PER_CM < COMPLETE_POSITION_ERR) {
-      // action is done!
-      isInAction = false;
+        if (fabsf(rotationPID.getError()) < COMPLETE_ROTATION_ERR &&
+            fabsf(positionPID.getError()) / COUNTS_PER_CM < COMPLETE_POSITION_ERR) {
+            isInAction = false;
+        }
     }
 
-  }
-  if (nowUs > last_vel_pid_tick + VELOCITY_PID_DELAY_US) {
-    last_vel_pid_tick = nowUs;
-
-    // rightMotorRPM = readRPM(rightEncoder);
-    // leftMotorRPM = readRPM(leftEncoder);
-    
-    // tick PID controls
-    rightVelocityPID.tick();
-    leftVelocityPID.tick();
-
-
-  }
+    if (nowUs - last_vel_pid_tick >= (uint32_t)VELOCITY_PID_DELAY_US) {
+        last_vel_pid_tick = nowUs;
+        rightVelocityPID.tick();
+        leftVelocityPID.tick();
+    }
 }
 
 void stop()
 {
-  setCommand(&leftMotor, 0);
-  setCommand(&rightMotor, 0);
+    setCommand(&leftMotor, 0);
+    setCommand(&rightMotor, 0);
 }
 
 void brake(uint32_t ms)
 {
-  // Short brake: IN1=IN2=HIGH for both motors
-  ledcWrite(leftMotor.chFwd, 255);
-  ledcWrite(leftMotor.chRev, 255);
-  ledcWrite(rightMotor.chFwd, 255);
-  ledcWrite(rightMotor.chRev, 255);
-
-  delay(ms);
-  stopMotors();
+    ledcWrite(leftMotor.chFwd,  255); ledcWrite(leftMotor.chRev,  255);
+    ledcWrite(rightMotor.chFwd, 255); ledcWrite(rightMotor.chRev, 255);
+    delay(ms);
+    stopMotors();
 }
 
-
-void setTargetPosition(float cm) {
-  if (isInAction) return;
-  isInAction = true;
-
-  positionPID.setTarget(readAvgPosition() + cm * COUNTS_PER_CM);
+void setTargetPosition(float cm)
+{
+    if (isInAction) return;
+    resetDeg();
+    rotationPID.setTarget(0.0f);
+    tof_correction_angle = 0.0f;
+    performingTurn = false;
+    isInAction     = true;
+    positionPID.setTarget(readAvgPosition() + cm * COUNTS_PER_CM);
 }
 
-void setTargetRotation(float deg) {
-  if (isInAction) return;
-  isInAction = true;
-  
-  resetDeg();
-  // float currentHeading = readDeg();
-
-  // rotationPID.setTarget(currentHeading + deg);
-  rotationPID.setTarget(deg);
-
+void setTargetRotation(float deg)
+{
+    if (isInAction) return;
+    rightVelocityPID.setTarget(0.0f);
+    leftVelocityPID.setTarget(0.0f);
+    lastRightVel     = 0.0f;
+    lastLeftVel      = 0.0f;
+    angularVelOffset = 0.0f;
+    tof_correction_angle = 0.0f;
+    resetDeg();
+    rotationPID.setTarget(deg);
+    performingTurn = true;
+    isInAction     = true;
 }
 
-}//namespace motors
+} // namespace motors
