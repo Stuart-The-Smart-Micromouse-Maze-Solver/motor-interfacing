@@ -103,11 +103,6 @@ void IRAM_ATTR rightEncoderISR()
 }
 
 
-
-// #define COUNTS_PER_REV 35   // yo is this true??
-#define COUNTS_PER_REV 140
-
-
 void readBothEncoders(int32_t& leftOut, int32_t& rightOut) {
   noInterrupts();
   leftOut  = leftEncoder.counts;
@@ -131,7 +126,7 @@ float readRPM(Encoder& encoder)
   encoder.lastCounts = c;
   encoder.lastReadTime = now;
 
-  float dt_min = dt_us / 60000000.0f;  // us -> minutes
+  float dt_min = dt_us / 60000000.0f;   // us -> minutes
   float revs = dc / (float)COUNTS_PER_REV;
 
   return revs / dt_min;

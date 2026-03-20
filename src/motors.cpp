@@ -83,8 +83,8 @@ namespace motors
 {
 
 // set control loop frequencies!!!
-const int POSITION_PID_DELAY_MS = 5;  // 5ms = 200Hz
-const int VELOCITY_PID_DELAY_MS = 1;  // 1ms = 1kHz
+const int POSITION_PID_DELAY_US = 5000;  // 5ms = 200Hz
+const int VELOCITY_PID_DELAY_US = 1000;  // 1ms = 1kHz
 
 // SET MOTOR ACTIVE ZONE
 // const int MOTOR_PWM_MIN = 100;
@@ -97,13 +97,12 @@ const int VELOCITY_PID_DELAY_MS = 1;  // 1ms = 1kHz
 // const int MAX_DELTA_PWM = 20;
 // or max change in velocity to prevent slipping
 
-// const float COMPLETE_ACTION_PERCENT = 0.95; // action will be done at x% of the target
-const float COMPLETE_POSITION_ERR = 0.5f; // action is done when within 0.5cm
-const float COMPLETE_ROTATION_ERR = 1.0f; // action is done when within 1.0 degree
+const float COMPLETE_POSITION_ERR = 0.5f; // action is done when within 0.5cm         // UPDATE THIS FOR FINAL VERSION
+const float COMPLETE_ROTATION_ERR = 3.0f; // action is done when within 1.0 degree    // UPDATE THIS FOR FINAL VERSION
 bool isInAction = false;  // bool to track action
 bool performingTurn;
 
-uint32_t nowMs;
+uint32_t nowUs;
 uint32_t last_pos_pid_tick;
 uint32_t last_vel_pid_tick;
 
@@ -113,7 +112,7 @@ static int32_t cachedRightCounts = 0;
 
 
 
-const int MAX_ACCEL = 5; // idk what units or what to even use
+
 float lastRightVel;
 float lastLeftVel;
 
@@ -153,8 +152,6 @@ float readTurn() {
     float distRight = getDistanceRight(); // mm
     float distLeft = getDistanceLeft(); // mm
     
-    // CHECK IF < 15cm?? CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS 
-    // CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS CONNOR UPDATE THIS 
     if (0 < distRight && distRight < 150 && 0 < distLeft && distLeft < 150) {
       tof_correction_angle = k_wall * -(distRight - distLeft);
     }
@@ -242,16 +239,16 @@ void updateLeftVelocity(float pwm) {
 }
 
 
-float motor_pos_P = 0.8f;     //0.6
-float motor_pos_I = 0.0f; //0.0
-float motor_pos_D = 0.0001f;
+float motor_pos_P = 0.8f;
+float motor_pos_I = 0.0f;
+float motor_pos_D = 0.1f; // 0.0001 before micros
 
 float motor_turn_P = 1.0f;    //0.8
 float motor_turn_I = 0.0f;    //0.0
 float motor_turn_D = 0.1f;
 
-float motor_vel_P = 0.2f;    // 0.04
-float motor_vel_I = 0.04f;     // 0.04? currently too slow so think you need these or higher
+float motor_vel_P = 0.2f;
+float motor_vel_I = 0.00004f; // 0.04 before micros
 float motor_vel_D = 0.0f;
 
 
@@ -292,11 +289,10 @@ void init()
   stopMotors();
 
 
-  // motorPositionPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);  // outputs velocity..? no need for bounds? or what
-  // motorVelocityPID.setOutputBounds(-MOTOR_PWM_RANGE, MOTOR_PWM_RANGE);
-  // rightVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
-  // leftVelocityPID.setOutputBounds(-MOTOR_PWM_MAX, MOTOR_PWM_MAX);
-  // rotationPID.setOutputBounds(-MOTOR_PWM_MAX*2, MOTOR_PWM_MAX*2);
+  positionPID.registerTimeFunction(micros);
+  rotationPID.registerTimeFunction(micros);
+  rightVelocityPID.registerTimeFunction(micros);
+  leftVelocityPID.registerTimeFunction(micros);
 
   // with deadzone
   rightVelocityPID.setOutputBounds(-MOTOR_ACTIVE_PWM_RANGE, MOTOR_ACTIVE_PWM_RANGE);
@@ -333,9 +329,11 @@ void setCommand(Motor *m, int cmd)
 }
 
 void tick() {
-  nowMs = millis();
-  if (nowMs > last_pos_pid_tick + POSITION_PID_DELAY_MS) {
-    last_pos_pid_tick = nowMs;
+  nowUs = micros();
+
+
+  if (nowUs > last_pos_pid_tick + POSITION_PID_DELAY_US) {
+    last_pos_pid_tick = nowUs;
 
     // Single atomic read of both encoders for entire position tick
     readBothEncoders(cachedLeftCounts, cachedRightCounts);
@@ -352,8 +350,8 @@ void tick() {
     }
 
   }
-  if (nowMs > last_vel_pid_tick + VELOCITY_PID_DELAY_MS) {
-    last_vel_pid_tick = nowMs;
+  if (nowUs > last_vel_pid_tick + VELOCITY_PID_DELAY_US) {
+    last_vel_pid_tick = nowUs;
 
     // rightMotorRPM = readRPM(rightEncoder);
     // leftMotorRPM = readRPM(leftEncoder);

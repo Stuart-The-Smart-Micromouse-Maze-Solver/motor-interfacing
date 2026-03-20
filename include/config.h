@@ -31,8 +31,8 @@ constexpr int RGB_LED_PIN = 38; // for state viewing
 
 
 // Wifi Hotspot 
-#define WIFI_SSID "SnakeGame"
-#define WIFI_PWD "robot123"
+#define WIFI_SSID "MINECRAFT_WIFI"
+#define WIFI_PWD "ieeeieee"
 
 
 // Empirically determined constants: 
@@ -41,7 +41,7 @@ constexpr int RGB_LED_PIN = 38; // for state viewing
 const float COUNTS_PER_CM = 13.5f; 
 const float CM_PER_COUNT = 0.302f; //this was 0.33056 but changed to 0.2667
 const int COUNTS_PER_CELL = 243; //
-const int SPR = 140; // counts per wheel revolution
+const int COUNTS_PER_REV = 140; // counts per wheel revolution
 
 const float WHEEL_DIAMETER_CM = 3.34f;  // measured
 const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.14159f;
@@ -58,3 +58,7 @@ const float FRONT_TOF_TO_WALL_CM = 2.0f;    // estimated for center
 const int MOTOR_PWM_MIN = 100;
 const int MOTOR_PWM_MAX = 255;
 const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
+
+
+const int MAX_ACCEL = 5; // idk what units or what to even use
+// UPDATE THIS FOR FINAL VERSION
