@@ -138,16 +138,16 @@ void updatePosition(float targetVel)
     lastLeftVel  = leftTarget;
 }
 
-// float readRightVelocity()          { return readRPM(rightEncoder); }
-float readRightVelocity()          { return rightEncoder.filteredRPM; }
+float readRightVelocity()          { return readRPM(rightEncoder); }
+// float readRightVelocity()          { return rightEncoder.filteredRPM; }
 void  updateRightVelocity(float p) { setCommand(&rightMotor, (int)p); }
-// float readLeftVelocity()           { return readRPM(leftEncoder); }
-float readLeftVelocity()           { return leftEncoder.filteredRPM; }
+float readLeftVelocity()           { return readRPM(leftEncoder); }
+// float readLeftVelocity()           { return leftEncoder.filteredRPM; }
 void  updateLeftVelocity(float p)  { setCommand(&leftMotor,  (int)p); }
 
 
-float motor_pos_P  = 0.15f;
-float motor_pos_I  = 0.001f;
+float motor_pos_P  = 0.2f;
+float motor_pos_I  = 0.0016f;
 float motor_pos_D  = 0.0f;
 
 float motor_turn_P = 1.0f;
@@ -304,7 +304,7 @@ void TestTuneInnerControlLoop()
     // const Waveform WAVE = SINE;
  
     const float    AMP        = 400.0f;  // peak velocity target (same units as readRPM)
-    const float    MAX_VEL    = 800.0f;  // hard clamp — never exceeded regardless of waveform
+    const float    MAX_VEL    = 500.0f;  // hard clamp — never exceeded regardless of waveform
     const uint32_t PERIOD_MS  = 2000;     // full cycle length in ms:
     //   SQUARE:    high AMP for PERIOD_MS/2, then 0 for PERIOD_MS/2
     //   TRAPEZOID: ramp-up PERIOD_MS/4 | hold PERIOD_MS/4 | ramp-down PERIOD_MS/4 | hold-0 PERIOD_MS/4

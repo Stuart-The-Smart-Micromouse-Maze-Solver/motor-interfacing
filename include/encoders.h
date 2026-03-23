@@ -6,7 +6,7 @@ struct Encoder {
   volatile int32_t counts;
   volatile unsigned long lastCounts;
   volatile unsigned long lastReadTime;
-  volatile unsigned long filteredRPM;
+  volatile long filteredRPM;
 };
 
 extern Encoder leftEncoder;
