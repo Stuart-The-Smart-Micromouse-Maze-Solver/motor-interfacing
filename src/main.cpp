@@ -213,7 +213,10 @@ void loop()
   }
   needsRestart = false;
 
-  
+  robotServer.log("Starting inner control loop test...");
+  motors::TestTuneInnerControlLoop();
+
+  /*
   robotServer.log("1. Going straight...");
   motors::performingTurn = false;
   motors::setTargetPosition(18);
@@ -243,4 +246,5 @@ void loop()
   motors::performingTurn = true;
   motors::setTargetRotation(-90);
   while (motors::isInAction) {motors::tick();}
+  */
 }

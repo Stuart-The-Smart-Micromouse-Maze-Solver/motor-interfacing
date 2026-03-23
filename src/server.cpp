@@ -311,6 +311,13 @@ static const char PAGE_HTML[] PROGMEM = R"rawhtml(
     </div>
     <div class="chart-wrap"><canvas id="turnChart"></canvas></div>
   </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Velocity  Target (dashed) vs Actual (solid)</span>
+      <span class="card-val" id="val-rpm">—</span>
+    </div>
+    <div class="chart-wrap"><canvas id="rpmChart"></canvas></div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
@@ -390,6 +397,15 @@ const velChart  = makeChart('velChart',  [
 ]);
 const turnChart = makeChart('turnChart', [{ label:'Turn Err', borderColor:'#f05e6b', data:[], borderWidth:1.5, pointRadius:0, fill:false }]);
 
+// Velocity tracking chart: dashed = target, solid = actual (feedback)
+// L = purple (#9966ff), R = amber (#ffb547)
+const rpmChart = makeChart('rpmChart', [
+  { label:'L Target', borderColor:'#9966ff', borderDash:[6,3], data:[], borderWidth:1.5, pointRadius:0, fill:false },
+  { label:'L Actual', borderColor:'#9966ff', borderDash:[],    data:[], borderWidth:2,   pointRadius:0, fill:false },
+  { label:'R Target', borderColor:'#ffb547', borderDash:[6,3], data:[], borderWidth:1.5, pointRadius:0, fill:false },
+  { label:'R Actual', borderColor:'#ffb547', borderDash:[],    data:[], borderWidth:2,   pointRadius:0, fill:false },
+]);
+
 // ── PID blocks ────────────────────────────────────────────────────
 const PID_DEFS = [
   { id:'pos',  label:'Position',   color:'#4bc0c0' },
@@ -433,10 +449,13 @@ function connectSSE() {
     pushChart(posChart,  d.pos.e);
     pushChart(velChart,  d.lvel.e, d.rvel.e);
     pushChart(turnChart, d.turn.e);
+    pushChart(rpmChart,  d.lvel.t, d.lvel.f, d.rvel.t, d.rvel.f);
 
     document.getElementById('val-pos').textContent  = d.pos.e.toFixed(3);
     document.getElementById('val-vel').textContent  = d.lvel.e.toFixed(2) + ' / ' + d.rvel.e.toFixed(2);
     document.getElementById('val-turn').textContent = d.turn.e.toFixed(3) + '\xb0';
+    document.getElementById('val-rpm').textContent  =
+      'L ' + d.lvel.f.toFixed(1) + ' / R ' + d.rvel.f.toFixed(1);
 
     PID_DEFS.forEach(({ id }) => {
       if (!d[id]) return;
@@ -581,12 +600,13 @@ void RobotServer::pushTelemetry()
 
     auto fmt = [](const char* id, PIDController<float>* p) -> String {
         return String("\"") + id + "\":{"
-            "\"t\":"   + String(p->getTarget(), 6) +
-            ",\"o\":"  + String(p->getOutput(), 6) +
-            ",\"e\":"  + String(p->getError(),  6) +
-            ",\"p\":"  + String(p->getP(),      6) +
-            ",\"iv\":" + String(p->getI(),      6) +
-            ",\"dv\":" + String(p->getD(),      6) +
+            "\"t\":"   + String(p->getTarget(),   6) +
+            ",\"o\":"  + String(p->getOutput(),   6) +
+            ",\"e\":"  + String(p->getError(),    6) +
+            ",\"f\":"  + String(p->getFeedback(), 6) +   // actual measured value (RPM for vel PIDs)
+            ",\"p\":"  + String(p->getP(),        6) +
+            ",\"iv\":" + String(p->getI(),        6) +
+            ",\"dv\":" + String(p->getD(),        6) +
             "}";
     };
 

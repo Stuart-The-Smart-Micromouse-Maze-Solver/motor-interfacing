@@ -110,6 +110,30 @@ void readBothEncoders(int32_t& leftOut, int32_t& rightOut) {
   interrupts();
 }
 
+// float readRPM(Encoder& encoder)
+// {
+//   noInterrupts();
+//   int32_t c = encoder.counts;
+//   interrupts();
+
+//   unsigned long now = micros();
+//   unsigned long dt_us = now - encoder.lastReadTime;
+
+//   if (dt_us == 0) return 0.0f;
+
+//   int32_t dc = c - encoder.lastCounts;
+
+//   encoder.lastCounts = c;
+//   encoder.lastReadTime = now;
+
+//   float dt_min = dt_us / 60000000.0f;   // us -> minutes
+//   float revs = dc / (float)COUNTS_PER_REV;
+
+//   return revs / dt_min;
+// }
+// In encoders.cpp
+float alpha = 0.15f; // Lower = smoother but more lag. Start at 0.1 - 0.2.
+
 float readRPM(Encoder& encoder)
 {
   noInterrupts();
@@ -118,18 +142,19 @@ float readRPM(Encoder& encoder)
 
   unsigned long now = micros();
   unsigned long dt_us = now - encoder.lastReadTime;
-
-  if (dt_us == 0) return 0.0f;
+  if (dt_us == 0) return encoder.filteredRPM; 
 
   int32_t dc = c - encoder.lastCounts;
-
   encoder.lastCounts = c;
   encoder.lastReadTime = now;
 
-  float dt_min = dt_us / 60000000.0f;   // us -> minutes
-  float revs = dc / (float)COUNTS_PER_REV;
+  float dt_min = dt_us / 60000000.0f;
+  float instantaneousRPM = (dc / (float)COUNTS_PER_REV) / dt_min;
 
-  return revs / dt_min;
+  // EMA Filter: New Value = (Current * alpha) + (Previous * (1 - alpha))
+  encoder.filteredRPM = (instantaneousRPM * alpha) + (encoder.filteredRPM * (1.0f - alpha));
+
+  return encoder.filteredRPM;
 }
 
 float readAvgPosition() {

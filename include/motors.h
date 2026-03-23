@@ -63,4 +63,5 @@ void brake(uint32_t ms);
 void setTargetPosition(float cm);
 void setTargetRotation(float deg);
 
+void TestTuneInnerControlLoop();
 }
