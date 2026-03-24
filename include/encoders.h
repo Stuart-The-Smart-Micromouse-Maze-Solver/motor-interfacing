@@ -4,8 +4,9 @@
 
 struct Encoder {
   volatile int32_t counts;
-  volatile unsigned long lastCounts;
+  volatile int32_t lastCounts;            // FIX: was unsigned long — type mismatch with counts
   volatile unsigned long lastReadTime;
+  volatile float filteredRPM;             // FIX: was long — integer truncation destroyed EMA filter
 };
 
 extern Encoder leftEncoder;
@@ -22,3 +23,4 @@ void IRAM_ATTR rightEncoderISR();
 
 float readRPM(Encoder& encoder);
 float readAvgPosition();
+void readBothEncoders(int32_t& leftOut, int32_t& rightOut);

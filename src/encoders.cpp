@@ -1,10 +1,14 @@
 #include <Arduino.h>
 #include "encoders.h"
 #include "config.h"
+#include "soc/gpio_struct.h"
+
+// ESP32-S3: GPIO 0-31 → GPIO.in, GPIO 32+ → GPIO.in1.data
+#define FAST_READ(p) ((p) < 32 ? ((GPIO.in >> (p)) & 1u) : ((GPIO.in1.data >> ((p) - 32)) & 1u))
 
 // Define the globals (IMPORTANT: this allocates them)
-Encoder leftEncoder  = {0, 0, 0};
-Encoder rightEncoder = {0, 0, 0};
+Encoder leftEncoder  = {0, 0, 0, 0.0f};
+Encoder rightEncoder = {0, 0, 0, 0.0f};
 
 // Protect 64-bit shared variable access between ISR and main loop
 static portMUX_TYPE encMux = portMUX_INITIALIZER_UNLOCKED;
@@ -42,8 +46,8 @@ void IRAM_ATTR leftEncoderISR()
 {
   static uint8_t lastState = 0;
 
-  uint8_t A = digitalRead(ENC_A);
-  uint8_t B = digitalRead(ENC_B);
+  uint8_t A = FAST_READ(ENC_A);
+  uint8_t B = FAST_READ(ENC_B);
 
   uint8_t state = (A << 1) | B;
   uint8_t combined = (lastState << 2) | state;
@@ -72,8 +76,8 @@ void IRAM_ATTR rightEncoderISR()
 {
   static uint8_t lastState = 0;
 
-  uint8_t C = digitalRead(ENC_C);
-  uint8_t D = digitalRead(ENC_D);
+  uint8_t C = FAST_READ(ENC_C);
+  uint8_t D = FAST_READ(ENC_D);
 
   uint8_t state = (C << 1) | D;
   uint8_t combined = (lastState << 2) | state;
@@ -99,10 +103,36 @@ void IRAM_ATTR rightEncoderISR()
 }
 
 
+void readBothEncoders(int32_t& leftOut, int32_t& rightOut) {
+  noInterrupts();
+  leftOut  = leftEncoder.counts;
+  rightOut = rightEncoder.counts;
+  interrupts();
+}
 
-// #define COUNTS_PER_REV 35   // yo is this true??
-#define COUNTS_PER_REV 140
+// float readRPM(Encoder& encoder)
+// {
+//   noInterrupts();
+//   int32_t c = encoder.counts;
+//   interrupts();
 
+//   unsigned long now = micros();
+//   unsigned long dt_us = now - encoder.lastReadTime;
+
+//   if (dt_us == 0) return 0.0f;
+
+//   int32_t dc = c - encoder.lastCounts;
+
+//   encoder.lastCounts = c;
+//   encoder.lastReadTime = now;
+
+//   float dt_min = dt_us / 60000000.0f;   // us -> minutes
+//   float revs = dc / (float)COUNTS_PER_REV;
+
+//   return revs / dt_min;
+// }
+// In encoders.cpp
+float alpha = 0.25f; // Lower = smoother but more lag. Raised from 0.15 to cut filter lag in half.
 
 float readRPM(Encoder& encoder)
 {
@@ -112,24 +142,23 @@ float readRPM(Encoder& encoder)
 
   unsigned long now = micros();
   unsigned long dt_us = now - encoder.lastReadTime;
-
-  if (encoder.lastReadTime == 0 || dt_us == 0) {
-    encoder.lastCounts = c;
-    encoder.lastReadTime = now;
-    return 0.0f;
-  }
+  if (dt_us == 0) return encoder.filteredRPM; 
 
   int32_t dc = c - encoder.lastCounts;
-
   encoder.lastCounts = c;
   encoder.lastReadTime = now;
 
-  float dt_min = dt_us / 60000000.0f; // us -> minutes
-  float revs = dc / (float)COUNTS_PER_REV;
+  float dt_min = dt_us / 60000000.0f;
+  float instantaneousRPM = (dc / (float)COUNTS_PER_REV) / dt_min;
 
-  return revs / dt_min;
+  // EMA Filter: New Value = (Current * alpha) + (Previous * (1 - alpha))
+  encoder.filteredRPM = (instantaneousRPM * alpha) + (encoder.filteredRPM * (1.0f - alpha));
+
+  return encoder.filteredRPM;
 }
 
 float readAvgPosition() {
-  return (readEncoderCounts(rightEncoder) + readEncoderCounts(leftEncoder))/2.0f;
+  int32_t left, right;
+  readBothEncoders(left, right);
+  return (left + right) / 2.0f;
 }

@@ -4,16 +4,6 @@
 #include "gyro_heading.h"
 #include "distance.h"
 
-// void motorsInit();
-
-// void motorsSetLeftPWM(int pwm);
-// void motorsSetRightPWM(int pwm);
-// void motorsBrakeStop(uint32_t ms);
-
-// // Optional (but useful for your PID)
-// double motorsGetLeftSpeed(float dt);
-// double motorsGetRightSpeed(float dt);
-
 struct Motor {
   int pinFwd;    // IN1
   int pinRev;    // IN2
@@ -26,26 +16,30 @@ struct Motor {
 extern Motor leftMotor;
 extern Motor rightMotor;
 
-void motorsInit();
 void setMotorCommand(Motor* m, int cmd);
 void stopMotors();
-void brakeMotors(uint32_t ms);
-void brakeStop(uint32_t ms);
 
-#pragma once
-namespace motors {
-    extern bool isInAction;
-    extern bool performingTurn;
 
-    extern PIDController<float> positionPID;
-    extern PIDController<float> rotationPID;
-    extern PIDController<float> rightVelocityPID;
-    extern PIDController<float> leftVelocityPID;
+namespace motors 
+{
+extern PIDController<float> rotationPID;
+extern PIDController<float> positionPID;
+extern PIDController<float> rightVelocityPID;
+extern PIDController<float> leftVelocityPID;
 
-    void init();
-    void tick();
-    void stop();
-    void setTargetPosition(float cm);
-    void setTargetRotation(float deg);
-    void setCommand(Motor *m, int cmd);
+extern bool isInAction;
+extern bool performingTurn;
+
+extern float tof_correction_angle;
+
+void init();
+void setCommand(Motor* m, int cmd);
+void tick();
+void stop();
+void brake(uint32_t ms);
+
+void setTargetPosition(float cm);
+void setTargetRotation(float deg);
+
+void TestTuneInnerControlLoop();
 }

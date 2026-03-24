@@ -27,57 +27,61 @@ const int PWM_CH_L2 = 1; // AIN2
 const int PWM_CH_R1 = 2; // BIN1
 const int PWM_CH_R2 = 3; // BIN2
 
-constexpr int RGB_LED_PIN = 38; // for state viewing
-
+constexpr int RGB_LED_PIN = 38;
 
 // Wifi Hotspot 
-#define WIFI_SSID "STUART"
-#define WIFI_PWD "micromouse"
+#define WIFI_SSID "superman"
+#define WIFI_PWD "tooth123"
 
-
-// Empirically determined constants: 
-
-// const float COUNTS_PER_CM = 33.3f; 
+// ═══════════════════════════════════════════════════════════════════
+//  Encoder / distance constants
+// ═══════════════════════════════════════════════════════════════════
 const float COUNTS_PER_CM = 13.5f; 
-const float CM_PER_COUNT = 0.302f; //this was 0.33056 but changed to 0.2667
-const int COUNTS_PER_CELL = 243; //
-const int SPR = 140; // counts per wheel revolution
+// FIX: CM_PER_COUNT must equal 1/COUNTS_PER_CM. Was 0.302 (4x too large!)
+const float CM_PER_COUNT = 1.0f / COUNTS_PER_CM;  // ≈ 0.0741
+const int COUNTS_PER_CELL = 243;
+const int COUNTS_PER_REV = 140;
 
-const float WHEEL_DIAMETER_CM = 3.34f;  // measured
+const float WHEEL_DIAMETER_CM = 3.34f;
 const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.14159f;
+const float WHEEL_BASE_DISTANCE = 6.7f;
 
-
-const float WHEEL_BASE_DISTANCE = 6.7;  // slightly measured? but adjusted?? actually measured 8cm
-const float COUNTS_OFFSET_PER_DEG = (1 / COUNTS_PER_CM) * (2 / WHEEL_BASE_DISTANCE) * (180 / 3.1416f);  // I think this is right??? idk
-
-const float SIDE_TOF_TO_WALL_CM = 0.0f; // idk yet
-const float FRONT_TOF_TO_WALL_CM = 2.0f;    // estimated for center
-
-
+const float SIDE_TOF_TO_WALL_CM = 4.25f;
+const float FRONT_TOF_TO_WALL_CM = 2.0f;
 
 const int MOTOR_PWM_MIN = 100;
 const int MOTOR_PWM_MAX = 255;
 const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 
-const int LEFT_MOTOR_PWM_MIN  = 100;
-const int RIGHT_MOTOR_PWM_MIN = 108;  // tune this experimentally
-const int MOTOR_CMD_DEADBAND  = 6;
+// ═══════════════════════════════════════════════════════════════════
+//  Speed limits — THE place to cap how fast the robot goes.
+//  Adjust these first if the robot is too fast or too slow.
+// ═══════════════════════════════════════════════════════════════════
+const float MAX_VELOCITY_RPM = 200.0f;   // max RPM the position PID can request
+                                          // 200 RPM ≈ 35 cm/s with your wheels
+const float MAX_TURN_RATE    = 150.0f;   // max angular correction from rotation PID
+const int   MAX_ACCEL        = 5;        // RPM change per 200Hz tick = 1000 RPM/sec ramp
+const float CALIBRATION_RPM  = 200.0f;   // max RPM during auto-calibration
+const int MOUSE_OFF_GROUND_ANGLE = 30;
 
-// Maze / navigation
-constexpr int MAZE_SIZE = 8;
-constexpr float CELL_SIZE_CM = 18.0f;
-constexpr int START_ROW = 0;
-constexpr int START_COL = 0;
-constexpr int START_HEADING = 0; // 0=N,1=E,2=S,3=W
-constexpr int WALL_PRESENT_THRESHOLD_MM = 120;
-constexpr int WALL_OPEN_THRESHOLD_MM = 170;
-constexpr int FRONT_BLOCK_THRESHOLD_MM = 75;
-constexpr int FRONT_OBSERVE_MAX_MM = 220;
-constexpr int SIDE_OBSERVE_MAX_MM = 220;
-constexpr int NAV_QUEUE_LEN = 64;
-constexpr int ACTION_TIMEOUT_MS = 5000;
-constexpr float STALL_RPM_THRESHOLD = 5.0f;
-constexpr float STALL_TARGET_RPM_MIN = 35.0f;
-constexpr int STALL_KICK_BOOST = 22;
-constexpr int STALL_KICK_WINDOW_MS = 180;
-constexpr int STALL_ABORT_MS = 1200;
+// ═══════════════════════════════════════════════════════════════════
+//  Maze constants
+// ═══════════════════════════════════════════════════════════════════
+const float CELL_SIZE_CM = 18.0f;
+const int WALL_FRONT_THRESHOLD_MM = 120;
+const int WALL_SIDE_THRESHOLD_MM  = 100;
+
+// ═══════════════════════════════════════════════════════════════════
+//  Front ToF wall correction
+//
+//  During forward moves the front sensor is used to snap the stop
+//  position onto the 18 cm cell grid relative to the front wall.
+//
+//  Valid stop distances from wall: FRONT_TOF_TO_WALL_CM + N * 18cm
+//  (N = 0, 1, 2 …). Corrections are blended in gently and weighted
+//  by distance — close readings are trusted more than far ones.
+// ═══════════════════════════════════════════════════════════════════
+const float FRONT_CORR_MAX_RANGE_CM   = FRONT_TOF_TO_WALL_CM + CELL_SIZE_CM * 2.5f;  // ~47 cm
+const float FRONT_CORR_SNAP_TOL_CM    = 4.0f;   // max error from grid line to trust
+const float FRONT_CORR_DEADBAND_CM    = 0.3f;    // ignore errors smaller than this
+const float FRONT_CORR_ALPHA          = 0.15f;   // blend rate per tick (gentle)

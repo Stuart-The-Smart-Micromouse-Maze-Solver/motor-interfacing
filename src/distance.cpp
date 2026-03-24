@@ -125,15 +125,3 @@ void distanceUpdateAll()
 int getDistanceLeft()  { return left_distance; }
 int getDistanceFront() { return center_distance; }
 int getDistanceRight() { return right_distance; }
-
-float getLateralOffsetMM() {
-  int leftMM  = getDistanceLeft();
-  int rightMM = getDistanceRight();
-
-  if (leftMM > 0 && leftMM < 150 &&
-      rightMM > 0 && rightMM < 150) {
-    return 0.5f * (leftMM - rightMM);
-  }
-
-  return 0.0f;
-}

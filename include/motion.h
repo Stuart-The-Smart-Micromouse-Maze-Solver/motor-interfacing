@@ -1,21 +1,35 @@
 #pragma once
 #include <Arduino.h>
 
-// Init once in setup
+// ═══════════════════════════════════════════════════════════════════
+//  Maze instruction executor
+//
+//  Accepts a command string like "F,R,F,L,F,F" and executes each
+//  primitive sequentially using the motors:: cascade PID system.
+//
+//  Supported tokens:
+//    F   or F3  — move forward 1 or N cells (18cm each)
+//    R   or R90 — turn right 90° (or custom degrees)
+//    L   or L90 — turn left 90°
+//    U   or B   — turn around 180°
+//    W   or W500— wait 200ms (or custom ms)
+//
+//  Example: "F3,R,F2,L,F,U,F4"
+// ═══════════════════════════════════════════════════════════════════
+
 void motionInit();
 
-// Call every loop (executes the active command)
-void motionUpdate(float dt, float leftDist=-1, float frontDist=-1, float rightDist=-1);
+// Parse and queue an instruction string. Returns true if parsed OK.
+bool motionExecute(const String& instructions);
 
-// Command API
-bool MoveForwardCells(int cells);
-bool MoveForwardCm(float cm);
-bool TurnRight();   
-bool TurnLeft();    
-bool Turn180();  
-bool WaitMs(uint16_t ms);   
+// Call every loop iteration to advance the state machine.
+void motionUpdate();
 
-
-// Status
+// True if currently executing a sequence.
 bool motionIsBusy();
-void motionStop();
+
+// Abort current sequence and stop motors.
+void motionAbort();
+
+// Number of commands remaining in queue (including current).
+int motionQueueRemaining();
