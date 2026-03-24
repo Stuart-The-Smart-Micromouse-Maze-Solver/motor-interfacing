@@ -14,6 +14,8 @@ static uint32_t lastCacheUs   = 0;
 
 static volatile float cachedGz   = 0.0f;
 static volatile bool  cacheReady = false;
+static volatile bool pendingReset = false;
+
 
 extern TwoWire I2CBus1;
 
@@ -56,6 +58,12 @@ void gyroCache()
 {
     if (!gyroValid) return;
 
+    if (pendingReset) {
+        integratedDeg = 0.0f;
+        zeroOffsetDeg = 0.0f;
+        pendingReset = false;
+    }
+
     sensors_event_t g;
     if (!gyro.getEvent(&g)) return;
 
@@ -90,8 +98,7 @@ void resetDeg()
     // Re-anchor to exactly 0 each time, not just shift the offset.
     // Prevents integratedDeg from growing into the thousands over many turns,
     // which would erode float32 precision (7 decimal digits).
-    integratedDeg = 0.0f;
-    zeroOffsetDeg = 0.0f;
+    pendingReset = true;
 }
 
 

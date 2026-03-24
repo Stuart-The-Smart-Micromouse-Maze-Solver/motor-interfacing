@@ -182,11 +182,13 @@ T PIDController<T>::tick()
       }
       else if(altErr1Abs < regErrAbs && altErr1Abs < altErr2Abs) //If altErr1Abs is smallest
       {
-        error = altErr1Abs;
+        // error = altErr1Abs;
+        error = altErr1;
       }
       else if(altErr2Abs < regErrAbs && altErr2Abs < altErr1Abs) //If altErr2Abs is smallest
       {
-        error = altErr2Abs;
+        // error = altErr2Abs;
+        error = altErr2;
       }
     }
     else

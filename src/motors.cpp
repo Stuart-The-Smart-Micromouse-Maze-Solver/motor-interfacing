@@ -44,7 +44,7 @@ namespace motors
 //  integral grow 5000x too fast and derivative 5000x too weak.
 // ═══════════════════════════════════════════════════════════════════
 const int   POSITION_PID_DELAY_US = 5000;   // 200 Hz
-const int   VELOCITY_PID_DELAY_US = 1000;   // 1000 Hz
+const int   VELOCITY_PID_DELAY_US = 2500;   // 400 Hz
 
 const float COMPLETE_POSITION_ERR = 1.0f;   // encoder counts (~0.07 cm)
 const float COMPLETE_ROTATION_ERR = 2.0f;   // degrees

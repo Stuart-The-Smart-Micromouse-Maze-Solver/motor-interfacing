@@ -128,7 +128,7 @@ void setup()
             float gyroHz = gyroExecCount / elapsedSec;
             float distHz = distExecCount / elapsedSec;
             String logMsg = "Freq - Gyro: " + String(gyroHz, 1) + "Hz, Dist: " + String(distHz, 1) + "Hz";
-            robotServer.log(logMsg);
+            // robotServer.log(logMsg);
             gyroExecCount = 0;
             distExecCount = 0;
             lastFreqLogMs = now;

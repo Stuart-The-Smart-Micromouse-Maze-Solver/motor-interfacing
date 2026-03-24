@@ -132,7 +132,7 @@ void readBothEncoders(int32_t& leftOut, int32_t& rightOut) {
 //   return revs / dt_min;
 // }
 // In encoders.cpp
-float alpha = 0.25f; // Lower = smoother but more lag. Raised from 0.15 to cut filter lag in half.
+float alpha = 0.15f; // Lower = smoother but more lag. Raised from 0.15 to cut filter lag in half.
 
 float readRPM(Encoder& encoder)
 {
