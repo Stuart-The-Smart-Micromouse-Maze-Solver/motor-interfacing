@@ -88,4 +88,9 @@ const float FRONT_CORR_ALPHA          = 0.50f;   // blend rate per tick (~87% co
 
 
 
-const float WHEEL_CENTER_TO_REAL_CENTER_CM = 2.0f;  // measure physically
+// Distance from the wheel axle midpoint to the robot's geometric centre (nose side).
+// Set to 0 until physically measured — an incorrect value causes ~2× this error
+// of cumulative position drift per 90° turn, which compounds over sequences.
+// To calibrate: place robot at cell centre, run R,R,R,R and check it returns
+// to the same spot. If it drifts, adjust this value (+ = nose is further ahead).
+const float WHEEL_CENTER_TO_REAL_CENTER_CM = 0.0f;

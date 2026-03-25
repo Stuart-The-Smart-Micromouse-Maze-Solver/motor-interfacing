@@ -95,10 +95,20 @@ float readDeg()
 
 void resetDeg()
 {
-    // Re-anchor to exactly 0 each time, not just shift the offset.
-    // Prevents integratedDeg from growing into the thousands over many turns,
-    // which would erode float32 precision (7 decimal digits).
-    pendingReset = true;
+    // Immediately anchor readDeg() to 0 by aligning zeroOffsetDeg to the current
+    // integratedDeg. This prevents the ~10ms stale-heading gap that occurs between
+    // Core 1 calling resetDeg() and Core 0 processing pendingReset in gyroCache().
+    //
+    // Without this: after a 90° right turn (integratedDeg ≈ -90°), the rotation PID
+    // on Core 1 sees 90° of phantom error for 2 ticks, accumulates ~27 RPM of bad
+    // integral, and that integral persists throughout the next forward move driving
+    // the robot into the wall.
+    //
+    // With this: readDeg() = integratedDeg - zeroOffsetDeg = 0 immediately.
+    // Integration continues correctly from 0 as new samples arrive.
+    // pendingReset still zeroes both vars to prevent float precision loss over time.
+    zeroOffsetDeg = integratedDeg;
+    pendingReset  = true;
 }
 
 
