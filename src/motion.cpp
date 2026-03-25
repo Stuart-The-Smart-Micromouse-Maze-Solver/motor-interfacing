@@ -149,47 +149,68 @@ static bool parseInstructions(const String& input) {
 static void applyFrontWallCorrection()
 {
     int frontMM = getDistanceFront();
-    if (frontMM <= 0) return;                       // no valid reading
+    if (frontMM <= 0) {
+        motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
+        return;
+    }
 
     float frontCm = frontMM / 10.0f;
-    if (frontCm > FRONT_CORR_MAX_RANGE_CM) return;  // too far to trust
+    if (frontCm > FRONT_CORR_MAX_RANGE_CM) {
+        motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
+        return;  // too far to trust
+    }
 
     float currentPosCounts = readAvgPosition();
     float remainingCm = (activeForwardBaseTarget - currentPosCounts) / COUNTS_PER_CM;
 
-    // Only allow front-wall correction inside roughly the FINAL cell of travel.
-    // The previous version could start pulling the target backward too early,
-    // which is why F7 was consistently stopping near cell 6 instead of cell 7.
-    if (remainingCm < -1.0f || remainingCm > (CELL_SIZE_CM + 2.0f)) return;
+    // Activate within the final 2 cells of planned travel.
+    // Gate 1 (FRONT_CORR_MAX_RANGE_CM ≈ 25 cm) is the real limiter — it prevents
+    // corrections from firing while the front wall is still far away. Gate 2 just
+    // needs to be wide enough to not block valid corrections for offset starts.
+    // With a 2-cell window (36 cm), robots that started up to ~12 cm from the back
+    // of their starting cell (e.g. center-placed, 9 cm offset → 12.5 cm overshoot)
+    // have their correction fire as soon as the front wall enters sensor range,
+    // rather than being rejected because the encoder still shows > 27 cm remaining.
+    if (remainingCm < -(CELL_SIZE_CM * 0.6f) || remainingCm > (CELL_SIZE_CM * 2.0f)) {
+        motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
+        return;
+    }
 
-    // Find the nearest valid grid stop position.
-    float distFromBase = frontCm - FRONT_TOF_TO_WALL_CM;
-    if (distFromBase < -CELL_SIZE_CM * 0.25f) return;
+    // Ideal remaining travel: exactly enough for front sensor to read FRONT_TOF_TO_WALL_CM.
+    // This directly accounts for any start-position offset without needing nearestN logic.
+    float idealRemainingCm = frontCm - FRONT_TOF_TO_WALL_CM;
+    if (idealRemainingCm < 0.0f) idealRemainingCm = 0.0f;  // don't reverse
 
-    int nearestN = max(0, (int)roundf(distFromBase / CELL_SIZE_CM));
-    float idealCm = FRONT_TOF_TO_WALL_CM + nearestN * CELL_SIZE_CM;
-    float errorCm = frontCm - idealCm;
+    float newTarget = currentPosCounts + idealRemainingCm * COUNTS_PER_CM;
 
-    if (fabsf(errorCm) < FRONT_CORR_DEADBAND_CM) return;
-    if (fabsf(errorCm) > FRONT_CORR_SNAP_TOL_CM) return;
-
-    float confidence;
-    if (nearestN == 0)      confidence = 1.0f;
-    else if (nearestN == 1) confidence = 0.5f;
-    else                    confidence = 0.25f;
-
-    float desiredTarget = currentPosCounts + errorCm * confidence * COUNTS_PER_CM;
-
-    // Never let the front sensor rewrite the move by an entire half-cell.
-    // Encoder distance remains the primary source of truth; the ToF is only a
-    // small final trim to remove residual count/calibration error.
-    const float MAX_ADJUST_COUNTS = 2.0f * COUNTS_PER_CM;  // ±2 cm trim only
-    desiredTarget = constrain(desiredTarget,
-                              activeForwardBaseTarget - MAX_ADJUST_COUNTS,
-                              activeForwardBaseTarget + MAX_ADJUST_COUNTS);
+    // Cap how far back the front sensor can pull the target.
+    // This prevents a spurious short reading (opening reflection, perpendicular wall)
+    // from stopping the robot more than 3/4 of a cell early.
+    // 0.75 × 18 = 13.5 cm covers a robot starting at the centre of its cell
+    // (9 cm offset → 12.5 cm overshoot including sensor offset).
+    const float MAX_PULLBACK_CM = CELL_SIZE_CM * 0.75f;  // 13.5 cm
+    newTarget = constrain(newTarget,
+                          activeForwardBaseTarget - MAX_PULLBACK_CM * COUNTS_PER_CM,
+                          activeForwardBaseTarget + 1.5f * COUNTS_PER_CM);
 
     float currentTarget = motors::positionPID.getTarget();
-    motors::positionPID.setTarget(currentTarget + FRONT_CORR_ALPHA * (desiredTarget - currentTarget));
+    motors::positionPID.setTarget(currentTarget + FRONT_CORR_ALPHA * (newTarget - currentTarget));
+
+    // Progressive approach-speed cap. Target pullback alone is not enough when the
+    // robot is still cruising near 200 RPM — it coasts ~1–2 cm past the corrected
+    // target before the position loop can bleed the momentum off, which is exactly
+    // the 18–19 mm wall-hit behaviour seen in the telemetry.
+    //
+    // Use the front-wall clearance itself as the slowdown signal:
+    //   clearance = frontCm - FRONT_TOF_TO_WALL_CM
+    // Far from wall  -> full speed.
+    // Near 35 mm stop -> cap toward a low, non-stalling RPM.
+    float clearanceCm = frontCm - FRONT_TOF_TO_WALL_CM;
+    float t = clearanceCm / FRONT_SLOW_ZONE_CM;
+    t = constrain(t, 0.0f, 1.0f);
+    float approachCapRpm = FRONT_MIN_APPROACH_RPM +
+                           t * (MAX_VELOCITY_RPM - FRONT_MIN_APPROACH_RPM);
+    motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, approachCapRpm);
 }
 
 
@@ -203,6 +224,7 @@ static void startNextPrimitive() {
         executing = false;
         primActive = false;
         currentPrimIsForward = false;
+        motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
         motors::stop();
         Serial.println("[Motion] Sequence complete.");
         return;
@@ -222,12 +244,14 @@ static void startNextPrimitive() {
         case PRIM_TURN:
             Serial.printf("[Motion] Turn %.1f deg\n", p.value);
             activeForwardBaseTarget = readAvgPosition();
+            motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
             motors::setTargetRotationCentered(p.value);
             break;
 
         case PRIM_WAIT:
             Serial.printf("[Motion] Wait %.0f ms\n", p.value);
             activeForwardBaseTarget = readAvgPosition();
+            motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
             waitUntilMs = millis() + (uint32_t)p.value;
             break;
     }
@@ -292,6 +316,7 @@ void motionUpdate() {
         int frontMM = getDistanceFrontRaw();
         if (frontMM > 0 && frontMM <= 20) {
             Serial.println("[Motion] Collision abort: front ToF <= 20mm");
+            motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
             motors::brake(20);   // active braking before abort
             motionAbort();
             // Snap position PID target to wherever the robot actually stopped.
@@ -322,6 +347,7 @@ void motionAbort() {
     activeForwardBaseTarget = readAvgPosition();
     currentPrimIsForward = false;
     motors::cancelCenteredRotation();
+    motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
     motors::isInAction = false;
     motors::performingTurn = false;
     motors::positionPID.setTarget(readAvgPosition());

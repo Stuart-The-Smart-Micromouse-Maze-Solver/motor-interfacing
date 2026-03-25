@@ -84,8 +84,16 @@ const int WALL_SIDE_THRESHOLD_MM  = 100;
 const float FRONT_CORR_MAX_RANGE_CM   = FRONT_TOF_TO_WALL_CM + CELL_SIZE_CM * 1.2f;  // ~25 cm — only last 1.2 cells of approach
 const float FRONT_CORR_SNAP_TOL_CM    = 3.0f;   // max error from grid line to trust
 const float FRONT_CORR_DEADBAND_CM    = 0.3f;    // ignore errors smaller than this
-const float FRONT_CORR_ALPHA          = 0.50f;   // blend rate per tick (~87% convergence in 3 ticks)
+const float FRONT_CORR_ALPHA          = 0.80f;   // blend rate per tick (~97% convergence in 3 ticks)
 
+// Front-approach slowdown: when the front wall is visible, progressively cap the
+// forward speed command so the robot reaches the final 35 mm stop distance with
+// low momentum instead of coasting into the wall at cruise speed.
+// clearance = frontCm - FRONT_TOF_TO_WALL_CM
+//   clearance >= FRONT_SLOW_ZONE_CM  -> full speed
+//   clearance <= 0                   -> FRONT_MIN_APPROACH_RPM
+const float FRONT_SLOW_ZONE_CM      = 20.0f;
+const float FRONT_MIN_APPROACH_RPM  = 50.0f;   
 
 
 // Distance from the wheel axle midpoint to the robot's geometric centre (nose side).
