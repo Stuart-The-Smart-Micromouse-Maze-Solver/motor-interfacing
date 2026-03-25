@@ -50,5 +50,6 @@ void zero();
 void TestTuneInnerControlLoop();
 
 void setTargetRotationCentered(float deg);
+void cancelCenteredRotation();
 void tickCentered();
 }

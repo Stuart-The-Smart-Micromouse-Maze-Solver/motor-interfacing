@@ -35,6 +35,9 @@ static float left_filtered   = -1.0f;
 static float center_filtered = -1.0f;
 static float right_filtered  = -1.0f;
 
+// Latest unfiltered center reading — used for collision abort to bypass EMA lag.
+static volatile int center_raw = -1;
+
 static bool left_ready   = false;
 static bool center_ready = false;
 static bool right_ready  = false;
@@ -61,7 +64,7 @@ static bool initSingleSensor(VL53L4CX &sensor, uint8_t address, const char *name
 }
 
 
-static void readSingleSensor(VL53L4CX &sensor, float &filtered)
+static void readSingleSensor(VL53L4CX &sensor, float &filtered, volatile int* rawOut = nullptr)
 {
   uint8_t dataReady = 0;
   sensor.VL53L4CX_GetMeasurementDataReady(&dataReady);
@@ -84,6 +87,8 @@ static void readSingleSensor(VL53L4CX &sensor, float &filtered)
     if (bestRaw < 0 || r < bestRaw) bestRaw = r;
   }
   if (bestRaw < 0) return;  // no valid target this cycle
+
+  if (rawOut) *rawOut = bestRaw;
 
   // Seed the filter on first valid reading instead of blending from -1
   if (filtered < 0.0f) {
@@ -135,11 +140,12 @@ bool distanceInit()
 void distanceUpdateAll()
 {
   if (left_ready)   readSingleSensor(sensorLeft,   left_filtered);
-  if (center_ready) readSingleSensor(sensorCenter, center_filtered);
+  if (center_ready) readSingleSensor(sensorCenter, center_filtered, &center_raw);
   if (right_ready)  readSingleSensor(sensorRight,  right_filtered);
 }
 
 // Returns -1 if no valid reading has arrived yet
-int getDistanceLeft()  { return (int)left_filtered;   }
-int getDistanceFront() { return (int)center_filtered; }
-int getDistanceRight() { return (int)right_filtered;  }
+int getDistanceLeft()     { return (int)left_filtered;   }
+int getDistanceFront()    { return (int)center_filtered; }
+int getDistanceFrontRaw() { return (int)center_raw;      }
+int getDistanceRight()    { return (int)right_filtered;  }

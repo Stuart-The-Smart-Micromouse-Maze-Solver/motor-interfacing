@@ -12,6 +12,9 @@ int getDistanceLeft();
 
 int getDistanceFront();
 
+// Latest unfiltered front reading — use for collision abort to bypass EMA lag.
+int getDistanceFrontRaw();
+
 int getDistanceRight();
 
 #endif // DISTANCE_H

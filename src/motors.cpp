@@ -69,6 +69,14 @@ float angularVelOffset = 0.0f;
 
 float tof_correction_angle = 0.0f;
 
+// Wall-centering state.
+// Hold the last good steering command briefly across openings instead of
+// instantly snapping the rotation target back to 0 every time one sensor loses
+// a wall. This is important in real mazes where side ToFs frequently see an
+// opening for part of a cell.
+static float    wallCenterTargetDeg = 0.0f;
+static uint32_t lastWallCenterMs    = 0;
+
 // For settle-time detection
 static uint32_t settleStartMs = 0;
 static bool     inSettleZone  = false;
@@ -85,8 +93,9 @@ float readTurn()
         float distRight = (float)getDistanceRight();
         float distLeft  = (float)getDistanceLeft();
         correctGyroDriftFromWalls(distLeft, distRight, WALL_CORRECTION_ALPHA);
-        tof_correction_angle = 0.3f * (distRight - distLeft); // logging only
     } else {
+        wallCenterTargetDeg = 0.0f;
+        lastWallCenterMs    = 0;
         tof_correction_angle = 0.0f;
     }
     return -readDeg();   // sign convention for your robot
@@ -307,6 +316,85 @@ void tick()
                 inSettleZone = false;
             }
         }
+
+        // ── Lateral wall centering during straight moves ──────────────────────
+        // The prior multi-cell snap logic was too strict for the real sensor data:
+        // readings like 120–330 mm were being rejected, which meant the steering
+        // target silently stayed at 0° and Stuart drove open-loop through F7.
+        //
+        // Use a simpler and more tolerant rule here:
+        //   • if BOTH side walls are visible within a sane range, steer from the
+        //     raw difference (right-left), which is enough to correct drift;
+        //   • if a wall temporarily disappears because of an opening, hold the last
+        //     steering command briefly and decay it slowly instead of zeroing it.
+        if (!performingTurn && isInAction) {
+            // MIN_VALID_MM was 20.0 — that excluded readings from a robot nearly
+            // touching a wall (dR = 5–15 mm after EMA lag), leaving the correction
+            // completely blind in exactly the scenario that causes side collisions.
+            const float MIN_VALID_MM   = 8.0f;
+            const float MAX_VALID_MM   = 350.0f;
+            const float MAX_DIFF_MM    = 220.0f;
+            const float NOMINAL_MM     = SIDE_TOF_TO_WALL_CM * 10.0f;  // 42.5 mm
+            const float CELL_MM        = CELL_SIZE_CM * 10.0f;          // 180 mm
+            const float GAIN           = 0.12f;   // deg/mm  (both walls)
+            const float GAIN_SINGLE    = 0.08f;   // deg/mm  (single wall — close-wall recovery)
+            const float MAX_TARGET_DEG = 5.0f;
+            const float MAX_SINGLE_DEG = 4.0f;
+            const uint32_t HOLD_MS     = 150;
+
+            const float dR = (float)getDistanceRight();
+            const float dL = (float)getDistanceLeft();
+            const bool rValid = (dR >= MIN_VALID_MM && dR <= MAX_VALID_MM);
+            const bool lValid = (dL >= MIN_VALID_MM && dL <= MAX_VALID_MM);
+
+            bool  haveFreshTarget = false;
+            float targetDeg       = wallCenterTargetDeg;
+
+            if (rValid && lValid) {
+                // Both walls visible: steer from raw difference.
+                // diff > 0 → robot closer to left wall → steer right (−target).
+                // diff < 0 → robot closer to right wall → steer left (+target). ✓
+                float diff = dR - dL;
+                if (fabsf(diff) <= MAX_DIFF_MM) {
+                    targetDeg       = constrain(-diff * GAIN, -MAX_TARGET_DEG, MAX_TARGET_DEG);
+                    haveFreshTarget = true;
+                }
+            } else if (rValid) {
+                // Only right wall visible (left open/far).
+                // Correct toward nearest expected cell-grid distance.
+                // eR < 0 = closer than expected = shifted right → steer left (+target). ✓
+                float n    = roundf((dR - NOMINAL_MM) / CELL_MM);
+                if (n < 0.0f) n = 0.0f;
+                float eR   = dR - (NOMINAL_MM + n * CELL_MM);
+                targetDeg       = constrain(-eR * GAIN_SINGLE, -MAX_SINGLE_DEG, MAX_SINGLE_DEG);
+                haveFreshTarget = true;
+            } else if (lValid) {
+                // Only left wall visible (right open/far).
+                // eL < 0 = closer than expected = shifted left → steer right (−target). ✓
+                float n    = roundf((dL - NOMINAL_MM) / CELL_MM);
+                if (n < 0.0f) n = 0.0f;
+                float eL   = dL - (NOMINAL_MM + n * CELL_MM);
+                targetDeg       = constrain(eL * GAIN_SINGLE, -MAX_SINGLE_DEG, MAX_SINGLE_DEG);
+                haveFreshTarget = true;
+            }
+
+            if (haveFreshTarget) {
+                wallCenterTargetDeg = 0.65f * wallCenterTargetDeg + 0.35f * targetDeg;
+                lastWallCenterMs    = millis();
+            } else {
+                uint32_t ageMs = millis() - lastWallCenterMs;
+                if (ageMs > HOLD_MS) {
+                    wallCenterTargetDeg *= 0.92f;
+                    if (fabsf(wallCenterTargetDeg) < 0.05f) wallCenterTargetDeg = 0.0f;
+                }
+            }
+
+            rotationPID.setTarget(wallCenterTargetDeg);
+            tof_correction_angle = wallCenterTargetDeg;
+        } else if (!isInAction) {
+            wallCenterTargetDeg = 0.0f;
+            tof_correction_angle = 0.0f;
+        }
     }
 
     tickCentered();
@@ -335,6 +423,8 @@ void brake(uint32_t ms)
 }
 
 
+void cancelCenteredRotation();
+
 // ═══════════════════════════════════════════════════════════════════
 //  zero() — reset position and orientation
 //  Stops all motion, zeroes encoder counts and gyro heading, and
@@ -342,6 +432,7 @@ void brake(uint32_t ms)
 // ═══════════════════════════════════════════════════════════════════
 void zero()
 {
+    cancelCenteredRotation();
     isInAction     = false;
     performingTurn = false;
     inSettleZone   = false;
@@ -349,6 +440,8 @@ void zero()
     lastRightVel     = 0.0f;
     lastLeftVel      = 0.0f;
     tof_correction_angle = 0.0f;
+    wallCenterTargetDeg = 0.0f;
+    lastWallCenterMs    = 0;
 
     stop();
     rightVelocityPID.setEnabled(false);
@@ -381,6 +474,8 @@ void setTargetPosition(float cm)
     resetDeg();
     rotationPID.setTarget(0.0f);
     tof_correction_angle = 0.0f;
+    wallCenterTargetDeg = 0.0f;
+    lastWallCenterMs    = 0;
     performingTurn = false;
     inSettleZone   = false;
     // Re-enable velocity PIDs for this move (may have been disabled on prior completion).
@@ -401,6 +496,8 @@ void setTargetRotation(float deg)
     lastLeftVel      = 0.0f;
     angularVelOffset = 0.0f;
     tof_correction_angle = 0.0f;
+    wallCenterTargetDeg = 0.0f;
+    lastWallCenterMs    = 0;
     resetDeg();
     rotationPID.setTarget(deg);
     performingTurn = true;
@@ -480,9 +577,26 @@ enum class CenteredRotState { IDLE, STEP_FORWARD, TURNING, STEP_BACK };
 static CenteredRotState centeredState = CenteredRotState::IDLE;
 static float            centeredDeg   = 0.0f;
 
+void cancelCenteredRotation()
+{
+    centeredState = CenteredRotState::IDLE;
+    centeredDeg   = 0.0f;
+}
+
 void setTargetRotationCentered(float deg)
 {
     if (isInAction || centeredState != CenteredRotState::IDLE) return;
+
+    // If a wall is directly ahead, do a regular in-place turn instead of the
+    // forward-offset centered turn sequence. This avoids nudging the nose into
+    // the wall before the actual rotation begins.
+    const int frontMM = getDistanceFrontRaw();
+    const float safetyMm = (WHEEL_CENTER_TO_REAL_CENTER_CM + FRONT_TOF_TO_WALL_CM + 1.5f) * 10.0f;
+    if (frontMM > 0 && frontMM <= (int)safetyMm) {
+        setTargetRotation(deg);
+        return;
+    }
+
     centeredDeg   = deg;
     centeredState = CenteredRotState::STEP_FORWARD;
     setTargetPosition(WHEEL_CENTER_TO_REAL_CENTER_CM);
@@ -492,7 +606,7 @@ void setTargetRotationCentered(float deg)
 void tickCentered()
 {
     if (centeredState == CenteredRotState::IDLE) return;
-    if (isInAction) return;   // wait for current move to finish
+    if (isInAction) return;   // wait for current step to finish
 
     switch (centeredState) {
         case CenteredRotState::STEP_FORWARD:
@@ -507,10 +621,11 @@ void tickCentered()
 
         case CenteredRotState::STEP_BACK:
             centeredState = CenteredRotState::IDLE;
+            centeredDeg   = 0.0f;
             break;
 
         default:
-            centeredState = CenteredRotState::IDLE;
+            cancelCenteredRotation();
             break;
     }
 }

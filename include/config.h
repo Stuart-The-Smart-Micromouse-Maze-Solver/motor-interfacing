@@ -81,10 +81,10 @@ const int WALL_SIDE_THRESHOLD_MM  = 100;
 //  (N = 0, 1, 2 …). Corrections are blended in gently and weighted
 //  by distance — close readings are trusted more than far ones.
 // ═══════════════════════════════════════════════════════════════════
-const float FRONT_CORR_MAX_RANGE_CM   = FRONT_TOF_TO_WALL_CM + CELL_SIZE_CM * 2.5f;  // ~47 cm
-const float FRONT_CORR_SNAP_TOL_CM    = 4.0f;   // max error from grid line to trust
+const float FRONT_CORR_MAX_RANGE_CM   = FRONT_TOF_TO_WALL_CM + CELL_SIZE_CM * 1.2f;  // ~25 cm — only last 1.2 cells of approach
+const float FRONT_CORR_SNAP_TOL_CM    = 3.0f;   // max error from grid line to trust
 const float FRONT_CORR_DEADBAND_CM    = 0.3f;    // ignore errors smaller than this
-const float FRONT_CORR_ALPHA          = 0.15f;   // blend rate per tick (gentle)
+const float FRONT_CORR_ALPHA          = 0.50f;   // blend rate per tick (~87% convergence in 3 ticks)
 
 
 

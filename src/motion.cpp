@@ -28,12 +28,15 @@ static bool executing = false;
 static bool primActive = false;
 static uint32_t waitUntilMs = 0;
 static bool currentPrimIsForward = false;   // tracks if active prim is a forward move
+static float activeForwardBaseTarget = 0.0f;     // original target for current forward primitive
 
 static void clearQueue() {
     primHead = primTail = primCount = 0;
     executing = false;
     primActive = false;
+    waitUntilMs = 0;
     currentPrimIsForward = false;
+    activeForwardBaseTarget = readAvgPosition();
 }
 
 static bool enqueue(PrimType type, float value) {
@@ -81,16 +84,13 @@ static bool parseInstructions(const String& input) {
 
         switch (cmd) {
             case 'F': {
-                // F or F3 — move forward N cells (default 1)
+                // F or F3 — move forward N cells as one continuous move.
+                // Previously queued as N individual 18cm moves with 50ms waits
+                // between each; that caused 6 stop/start cycles on F7 which added
+                // jerk and lateral drift. Continuous lateral centering handles
+                // wall guidance throughout without needing intermediate stops.
                 int cells = (arg > 0) ? (int)arg : 1;
-                // Queue as individual 1-cell moves for wall correction between cells
-                for (int i = 0; i < cells; i++) {
-                    if (!enqueue(PRIM_FORWARD, CELL_SIZE_CM)) return false;
-                    // Small pause between cells for sensor reading
-                    if (i < cells - 1) {
-                        if (!enqueue(PRIM_WAIT, 50)) return false;
-                    }
-                }
+                if (!enqueue(PRIM_FORWARD, cells * CELL_SIZE_CM)) return false;
                 break;
             }
             case 'R': {
@@ -154,33 +154,42 @@ static void applyFrontWallCorrection()
     float frontCm = frontMM / 10.0f;
     if (frontCm > FRONT_CORR_MAX_RANGE_CM) return;  // too far to trust
 
-    // Find the nearest valid grid stop position
+    float currentPosCounts = readAvgPosition();
+    float remainingCm = (activeForwardBaseTarget - currentPosCounts) / COUNTS_PER_CM;
+
+    // Only allow front-wall correction inside roughly the FINAL cell of travel.
+    // The previous version could start pulling the target backward too early,
+    // which is why F7 was consistently stopping near cell 6 instead of cell 7.
+    if (remainingCm < -1.0f || remainingCm > (CELL_SIZE_CM + 2.0f)) return;
+
+    // Find the nearest valid grid stop position.
     float distFromBase = frontCm - FRONT_TOF_TO_WALL_CM;
-    if (distFromBase < -CELL_SIZE_CM * 0.25f) return;  // behind the wall — ignore
+    if (distFromBase < -CELL_SIZE_CM * 0.25f) return;
 
     int nearestN = max(0, (int)roundf(distFromBase / CELL_SIZE_CM));
     float idealCm = FRONT_TOF_TO_WALL_CM + nearestN * CELL_SIZE_CM;
     float errorCm = frontCm - idealCm;
 
-    // Deadband — don't correct noise
     if (fabsf(errorCm) < FRONT_CORR_DEADBAND_CM) return;
-
-    // Reject if error is too large — probably snapped to the wrong grid line
     if (fabsf(errorCm) > FRONT_CORR_SNAP_TOL_CM) return;
 
-    // Distance-based confidence: trust close readings more
     float confidence;
     if (nearestN == 0)      confidence = 1.0f;
     else if (nearestN == 1) confidence = 0.5f;
     else                    confidence = 0.25f;
 
-    // Compute absolute stop position from current encoder location.
-    // Using relative accumulation (oldTarget + delta * alpha per call) at loop
-    // speed would grow the target by ~40-100 cm for a 2 cm sensor error.
-    // Instead, EMA-blend toward the absolute corrected target each ToF tick.
-    float correctedTarget = readAvgPosition() + errorCm * confidence * COUNTS_PER_CM;
+    float desiredTarget = currentPosCounts + errorCm * confidence * COUNTS_PER_CM;
+
+    // Never let the front sensor rewrite the move by an entire half-cell.
+    // Encoder distance remains the primary source of truth; the ToF is only a
+    // small final trim to remove residual count/calibration error.
+    const float MAX_ADJUST_COUNTS = 2.0f * COUNTS_PER_CM;  // ±2 cm trim only
+    desiredTarget = constrain(desiredTarget,
+                              activeForwardBaseTarget - MAX_ADJUST_COUNTS,
+                              activeForwardBaseTarget + MAX_ADJUST_COUNTS);
+
     float currentTarget = motors::positionPID.getTarget();
-    motors::positionPID.setTarget(currentTarget + FRONT_CORR_ALPHA * (correctedTarget - currentTarget));
+    motors::positionPID.setTarget(currentTarget + FRONT_CORR_ALPHA * (desiredTarget - currentTarget));
 }
 
 
@@ -207,15 +216,18 @@ static void startNextPrimitive() {
             Serial.printf("[Motion] Forward %.1f cm\n", p.value);
             currentPrimIsForward = true;
             motors::setTargetPosition(p.value);
+            activeForwardBaseTarget = motors::positionPID.getTarget();
             break;
 
         case PRIM_TURN:
             Serial.printf("[Motion] Turn %.1f deg\n", p.value);
-            motors::setTargetRotation(p.value);
+            activeForwardBaseTarget = readAvgPosition();
+            motors::setTargetRotationCentered(p.value);
             break;
 
         case PRIM_WAIT:
             Serial.printf("[Motion] Wait %.0f ms\n", p.value);
+            activeForwardBaseTarget = readAvgPosition();
             waitUntilMs = millis() + (uint32_t)p.value;
             break;
     }
@@ -273,10 +285,12 @@ void motionUpdate() {
         currentPrimIsForward = false;
         primActive = false;  // triggers next primitive on next call
     } else if (currentPrimIsForward) {
-        // Emergency collision abort
-        int frontMM = getDistanceFront();
+        // Emergency collision abort — use raw (unfiltered) front reading to
+        // bypass the EMA lag (~150ms) that delays detection at speed.
+        int frontMM = getDistanceFrontRaw();
         if (frontMM > 0 && frontMM <= 40) {
             Serial.println("[Motion] Collision abort: front ToF <= 40mm");
+            motors::brake(20);   // active braking before abort
             motionAbort();
             // Snap position PID target to wherever the robot actually stopped.
             // Without this, any front-correction overshoot remains in the target
@@ -303,8 +317,13 @@ bool motionIsBusy() {
 
 void motionAbort() {
     clearQueue();
+    activeForwardBaseTarget = readAvgPosition();
     currentPrimIsForward = false;
+    motors::cancelCenteredRotation();
     motors::isInAction = false;
+    motors::performingTurn = false;
+    motors::positionPID.setTarget(readAvgPosition());
+    motors::rotationPID.setTarget(0.0f);
     // Disable velocity PIDs so they don't re-engage on the next tick() call.
     // motors::stop() alone only zeroes PWM; without disabling the PIDs they
     // immediately fight back to their last targets.
