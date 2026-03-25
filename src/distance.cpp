@@ -1,20 +1,8 @@
 #include "distance.h"
 #include <Wire.h>
 #include <vl53l4cx_class.h>
+#include "config.h"
 
-
-#define SDA_PIN_0 47
-#define SCL_PIN_0 21
-// Bus 2
-#define SDA_PIN_1 40
-#define SCL_PIN_1 39
-
-#define XSHUT_PIN_LEFT   41  // Sensor 1
-#define XSHUT_PIN_CENTER 45  // Sensor 2
-#define XSHUT_PIN_RIGHT  48  // Sensor 3
-
-#define SENSOR_DEFAULT_ADDR 0x29
-#define SENSOR_CENTER_ADDR  0x2A // New address for Center so Right can use default
 
 TwoWire I2CBus0 = TwoWire(0);
 TwoWire I2CBus1 = TwoWire(1);
