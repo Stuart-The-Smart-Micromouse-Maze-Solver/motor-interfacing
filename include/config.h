@@ -2,8 +2,12 @@
 #include <Arduino.h>
 
 // ================= Pins =================
-constexpr int SDA2_PIN = 40;
-constexpr int SCL2_PIN = 39;
+// I2C bus one
+constexpr int SDA_PIN_0 = 47;
+constexpr int SCL_PIN_0 = 21;
+// I2C bus two
+constexpr int SDA_PIN_1 = 40;
+constexpr int SCL_PIN_1 = 39;
 
 // Motor driver 
 constexpr int AIN1 = 11;
@@ -52,6 +56,14 @@ const float FRONT_TOF_TO_WALL_CM = 3.5f;
 const int MOTOR_PWM_MIN = 100;
 const int MOTOR_PWM_MAX = 255;
 const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
+
+#define XSHUT_PIN_LEFT   41  // Sensor 1
+#define XSHUT_PIN_CENTER 45  // Sensor 2
+#define XSHUT_PIN_RIGHT  48  // Sensor 3
+
+#define SENSOR_DEFAULT_ADDR 0x29
+#define SENSOR_CENTER_ADDR  0x2A // New address for Center so Right can use default
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  Speed limits — THE place to cap how fast the robot goes.
