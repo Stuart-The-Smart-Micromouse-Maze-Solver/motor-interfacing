@@ -287,9 +287,11 @@ void motionUpdate() {
     } else if (currentPrimIsForward) {
         // Emergency collision abort — use raw (unfiltered) front reading to
         // bypass the EMA lag (~150ms) that delays detection at speed.
+        // Threshold must be well below FRONT_TOF_TO_WALL_CM (35mm) to avoid
+        // spurious aborts during normal planned stops at the cell boundary.
         int frontMM = getDistanceFrontRaw();
-        if (frontMM > 0 && frontMM <= 40) {
-            Serial.println("[Motion] Collision abort: front ToF <= 40mm");
+        if (frontMM > 0 && frontMM <= 20) {
+            Serial.println("[Motion] Collision abort: front ToF <= 20mm");
             motors::brake(20);   // active braking before abort
             motionAbort();
             // Snap position PID target to wherever the robot actually stopped.

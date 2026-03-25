@@ -352,29 +352,31 @@ void tick()
 
             if (rValid && lValid) {
                 // Both walls visible: steer from raw difference.
-                // diff > 0 → robot closer to left wall → steer right (−target).
-                // diff < 0 → robot closer to right wall → steer left (+target). ✓
+                // Positive target = turn RIGHT (same as R command convention).
+                // diff < 0 → dR < dL → robot close to right wall → steer LEFT → negative target.
+                // diff > 0 → dR > dL → robot close to left wall  → steer RIGHT → positive target.
                 float diff = dR - dL;
                 if (fabsf(diff) <= MAX_DIFF_MM) {
-                    targetDeg       = constrain(-diff * GAIN, -MAX_TARGET_DEG, MAX_TARGET_DEG);
+                    targetDeg       = constrain(diff * GAIN, -MAX_TARGET_DEG, MAX_TARGET_DEG);
                     haveFreshTarget = true;
                 }
             } else if (rValid) {
                 // Only right wall visible (left open/far).
-                // Correct toward nearest expected cell-grid distance.
-                // eR < 0 = closer than expected = shifted right → steer left (+target). ✓
+                // eR < 0 = closer than expected = shifted right → steer LEFT → negative target.
+                // eR > 0 = farther than expected = shifted left  → steer RIGHT → positive target.
                 float n    = roundf((dR - NOMINAL_MM) / CELL_MM);
                 if (n < 0.0f) n = 0.0f;
                 float eR   = dR - (NOMINAL_MM + n * CELL_MM);
-                targetDeg       = constrain(-eR * GAIN_SINGLE, -MAX_SINGLE_DEG, MAX_SINGLE_DEG);
+                targetDeg       = constrain(eR * GAIN_SINGLE, -MAX_SINGLE_DEG, MAX_SINGLE_DEG);
                 haveFreshTarget = true;
             } else if (lValid) {
                 // Only left wall visible (right open/far).
-                // eL < 0 = closer than expected = shifted left → steer right (−target). ✓
+                // eL < 0 = closer than expected = shifted left → steer RIGHT → positive target.
+                // eL > 0 = farther than expected = shifted right → steer LEFT → negative target.
                 float n    = roundf((dL - NOMINAL_MM) / CELL_MM);
                 if (n < 0.0f) n = 0.0f;
                 float eL   = dL - (NOMINAL_MM + n * CELL_MM);
-                targetDeg       = constrain(eL * GAIN_SINGLE, -MAX_SINGLE_DEG, MAX_SINGLE_DEG);
+                targetDeg       = constrain(-eL * GAIN_SINGLE, -MAX_SINGLE_DEG, MAX_SINGLE_DEG);
                 haveFreshTarget = true;
             }
 
