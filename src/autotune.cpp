@@ -22,7 +22,7 @@ static void tickVelocityOnly(uint32_t durationMs) {
     uint32_t lastTick = micros();
     while (millis() - start < durationMs) {
         uint32_t now = micros();
-        if (now - lastTick >= 1000) {  // 1kHz
+        if (now - lastTick >= 2500) {  // 400Hz — matches VELOCITY_PID_DELAY_US
             lastTick = now;
             motors::rightVelocityPID.tick();
             motors::leftVelocityPID.tick();
@@ -160,30 +160,27 @@ static PIDGains computeVelocityGains(float K, float tau_ms, float lambdaFactor)
 {
     PIDGains g;
 
-    // Convert τ from ms to ticks (at 1kHz, 1 tick = 1ms)
-    float tau_ticks = tau_ms;
+    // Convert τ from ms to ticks at 400Hz (1 tick = 2.5ms)
+    float tau_ticks = tau_ms / 2.5f;
 
     // λ = desired closed-loop time constant (ticks)
     // lambdaFactor=1.0 is aggressive, 2.0 is conservative
     float lambda_ticks = tau_ticks * lambdaFactor;
-    if (lambda_ticks < 5.0f) lambda_ticks = 5.0f;   // minimum 5ms
+    if (lambda_ticks < 5.0f) lambda_ticks = 5.0f;   // minimum 5 ticks = 12.5ms
 
     // IMC tuning for first-order plant:
-    //   Kp = τ / (K * λ)
-    //   Ki = 1 / (K * λ)     [per tick]
-    //   Kd = 0                [velocity loops rarely need D]
+    //   Kp = τ / (K * λ)         [dimensionless — tick rate cancels]
+    //   Ki = 1 / (K * λ)         [per 400Hz tick]
+    //   Kd = 0                    [velocity loops rarely need D]
     g.P = tau_ticks / (K * lambda_ticks);
     g.I = 1.0f / (K * lambda_ticks);
     g.D = 0.0f;
 
-    // Sanity bounds
-    // FIX: Minimum I raised from 0.0001 to 0.002. With the motor dead zone
-    // (MOTOR_PWM_MIN=100), the velocity PID must build enough integral to
-    // output ~40 cmd units before the motor starts spinning. At I=0.0005
-    // this takes over 1 second. At I=0.002 with error=60 RPM the integral
-    // reaches 40 in ~333 ticks (333ms) — much more responsive.
+    // Sanity bounds.
+    // At 400Hz, each tick is 2.5ms. With error=60 RPM, I=0.005 accumulates
+    // 60*0.005=0.3/tick → reaches 40 counts in 133 ticks = 333ms.
     g.P = constrain(g.P, 0.05f, 5.0f);
-    g.I = constrain(g.I, 0.002f, 0.1f);
+    g.I = constrain(g.I, 0.005f, 0.2f);
 
     return g;
 }
@@ -219,17 +216,20 @@ static float velocityStepTest(
     motors::rightVelocityPID.setTarget(targetRPM);
     motors::leftVelocityPID.setTarget(targetRPM);
 
-    // Sample for 1.5s
+    // Sample for ~3.75s (1500 samples × 2.5ms/tick at 400Hz)
     float peakRPM = 0;
     int n = 0;
     uint32_t lastSampleUs = micros();
     while (n < MAX_SAMPLES) {
         uint32_t now = micros();
-        if (now - lastSampleUs >= 1000) {
+        if (now - lastSampleUs >= 2500) {  // 400Hz — matches VELOCITY_PID_DELAY_US
             lastSampleUs = now;
             motors::rightVelocityPID.tick();
             motors::leftVelocityPID.tick();
-            float avgRPM = (readRPM(rightEncoder) + readRPM(leftEncoder)) / 2.0f;
+            // Use getFeedback() — readRPM() was already called inside tick() via the PID
+            // source function. Calling readRPM() again would update the EMA a second time
+            // with a near-zero dt, biasing the filtered RPM ~15% lower than the PID sees.
+            float avgRPM = (motors::rightVelocityPID.getFeedback() + motors::leftVelocityPID.getFeedback()) / 2.0f;
             if (avgRPM > peakRPM) peakRPM = avgRPM;
             samplesL[n] = avgRPM;
             n++;
@@ -267,7 +267,7 @@ static float velocityStepTest(
             break;
         }
     }
-    float settleMs = (float)settledTick;
+    float settleMs = (float)settledTick * 2.5f;  // 400Hz: 1 tick = 2.5ms
 
     logFn("  Step test: overshoot=" + String(overshoot,1) + "%, settle=" +
           String(settleMs,0) + "ms, peak=" + String(peakRPM,1) +
@@ -599,14 +599,14 @@ CalibrationResult runCalibration(std::function<void(const String&)> logFn)
     if (testRPM > CALIBRATION_RPM) testRPM = CALIBRATION_RPM;
 
     for (int retry = 0; retry < 4; retry++) {
-        float result = velocityStepTest(testRPM, velGains, logFn);
+        float stepResult = velocityStepTest(testRPM, velGains, logFn);
 
-        if (result >= 0.0f && result < 25.0f) {
+        if (stepResult >= 0.0f && stepResult < 25.0f) {
             logFn("  Velocity PID: OK");
             break;
         }
 
-        if (result < 0.0f) {
+        if (stepResult < 0.0f) {
             // Under-target: controller too weak to reach setpoint.
             // Need MORE aggressive gains (smaller lambda), not less.
             lambdaFactor *= 0.55f;

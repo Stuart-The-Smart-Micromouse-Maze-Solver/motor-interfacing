@@ -174,10 +174,13 @@ static void applyFrontWallCorrection()
     else if (nearestN == 1) confidence = 0.5f;
     else                    confidence = 0.25f;
 
-    // Positive error = mouse is further from wall than ideal → need to advance more
-    float correctionCounts = errorCm * confidence * COUNTS_PER_CM;
+    // Compute absolute stop position from current encoder location.
+    // Using relative accumulation (oldTarget + delta * alpha per call) at loop
+    // speed would grow the target by ~40-100 cm for a 2 cm sensor error.
+    // Instead, EMA-blend toward the absolute corrected target each ToF tick.
+    float correctedTarget = readAvgPosition() + errorCm * confidence * COUNTS_PER_CM;
     float currentTarget = motors::positionPID.getTarget();
-    motors::positionPID.setTarget(currentTarget + correctionCounts * FRONT_CORR_ALPHA);
+    motors::positionPID.setTarget(currentTarget + FRONT_CORR_ALPHA * (correctedTarget - currentTarget));
 }
 
 
@@ -270,8 +273,27 @@ void motionUpdate() {
         currentPrimIsForward = false;
         primActive = false;  // triggers next primitive on next call
     } else if (currentPrimIsForward) {
-        // Still moving forward — apply front wall correction
-        applyFrontWallCorrection();
+        // Emergency collision abort
+        int frontMM = getDistanceFront();
+        if (frontMM > 0 && frontMM <= 40) {
+            Serial.println("[Motion] Collision abort: front ToF <= 40mm");
+            motionAbort();
+            // Snap position PID target to wherever the robot actually stopped.
+            // Without this, any front-correction overshoot remains in the target
+            // and the robot shows a non-zero position error when placed back in
+            // the correct cell (and fights to push itself into the wall).
+            motors::positionPID.setTarget(readAvgPosition());
+            return;
+        }
+        // Rate-limit front wall correction to ~30 Hz (ToF update rate).
+        // applyFrontWallCorrection() must NOT run at loop speed — it would
+        // accumulate a huge target offset even though alpha looks small.
+        static uint32_t lastCorrUs = 0;
+        uint32_t nowUs = micros();
+        if (nowUs - lastCorrUs >= 33333) {
+            lastCorrUs = nowUs;
+            applyFrontWallCorrection();
+        }
     }
 }
 
@@ -282,8 +304,15 @@ bool motionIsBusy() {
 void motionAbort() {
     clearQueue();
     currentPrimIsForward = false;
-    motors::stop();
     motors::isInAction = false;
+    // Disable velocity PIDs so they don't re-engage on the next tick() call.
+    // motors::stop() alone only zeroes PWM; without disabling the PIDs they
+    // immediately fight back to their last targets.
+    motors::rightVelocityPID.setTarget(0.0f);
+    motors::leftVelocityPID.setTarget(0.0f);
+    motors::rightVelocityPID.setEnabled(false);
+    motors::leftVelocityPID.setEnabled(false);
+    motors::stop();
 }
 
 int motionQueueRemaining() {

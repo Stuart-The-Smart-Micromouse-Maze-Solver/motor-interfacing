@@ -51,7 +51,7 @@ const float COMPLETE_ROTATION_ERR = 2.0f;   // degrees
 const uint32_t SETTLE_TIME_MS     = 100;    // hold within tolerance for this long
 
 // Wall correction alpha — applied at 200 Hz during straight moves only
-const float WALL_CORRECTION_ALPHA = 0.03f;  // reduced from 0.05 to avoid jitter
+const float WALL_CORRECTION_ALPHA = 0.0f;   // disabled — fights gyro correction when lateral drift and heading error coexist
 
 bool isInAction     = false;
 bool performingTurn = false;
@@ -162,19 +162,19 @@ void  updateLeftVelocity(float p)  { setCommand(&leftMotor,  (int)p); }
 // ═══════════════════════════════════════════════════════════════════
 
 // Position: controls forward/backward motion in encoder counts
-float motor_pos_P  = 0.12f;
-float motor_pos_I  = 0.002f;   // tick-based: accumulates error*I per tick
-float motor_pos_D  = 0.8f;     // tick-based: damping on count-rate-of-change
+float motor_pos_P  = 5.400000f;
+float motor_pos_I  = 0.150000f;
+float motor_pos_D  = 1.500000f;
 
 // Rotation: controls heading in degrees
-float motor_turn_P = 2.5f;     // stronger P for crisp turns
-float motor_turn_I = 0.005f;   // slow integral to eliminate steady-state
-float motor_turn_D = 1.5f;     // damping to prevent overshoot
+float motor_turn_P = 5.400000f;
+float motor_turn_I = 0.150000f;
+float motor_turn_D = 1.500000f;
 
-// Velocity: inner loop, ticks at 1 kHz
-float motor_vel_P  = 0.6f;
-float motor_vel_I  = 0.005f;   // was 0.001 with micros (= effectively 5.0)
-float motor_vel_D  = 0.08f;    // was 0.1 with micros (= effectively 0.00002)
+// Velocity: inner loop — same gains applied to both motors
+float motor_vel_P  = 1.008530f;
+float motor_vel_I  = 0.005043f;
+float motor_vel_D  = 0.000000f;
 
 PIDController<float> rotationPID    (motor_turn_P, motor_turn_I, motor_turn_D, readTurn,          updateTurn);
 PIDController<float> positionPID    (motor_pos_P,  motor_pos_I,  motor_pos_D,  readPosition,      updatePosition);
@@ -309,6 +309,8 @@ void tick()
         }
     }
 
+    tickCentered();
+
     // ── Inner loop: velocity at 1 kHz ────────────────────────────
     if (nowUs - last_vel_pid_tick >= (uint32_t)VELOCITY_PID_DELAY_US) {
         last_vel_pid_tick = nowUs;
@@ -330,6 +332,43 @@ void brake(uint32_t ms)
     ledcWrite(rightMotor.chFwd, 255); ledcWrite(rightMotor.chRev, 255);
     delay(ms);
     stopMotors();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  zero() — reset position and orientation
+//  Stops all motion, zeroes encoder counts and gyro heading, and
+//  clears PID targets so the robot treats its current pose as (0, 0°).
+// ═══════════════════════════════════════════════════════════════════
+void zero()
+{
+    isInAction     = false;
+    performingTurn = false;
+    inSettleZone   = false;
+    angularVelOffset = 0.0f;
+    lastRightVel     = 0.0f;
+    lastLeftVel      = 0.0f;
+    tof_correction_angle = 0.0f;
+
+    stop();
+    rightVelocityPID.setEnabled(false);
+    leftVelocityPID.setEnabled(false);
+    rightVelocityPID.setTarget(0.0f);
+    leftVelocityPID.setTarget(0.0f);
+
+    resetEncoderCounts();
+    cachedLeftCounts  = 0;
+    cachedRightCounts = 0;
+
+    // Clear position and rotation PID integrals (setEnabled(false) zeroes them)
+    positionPID.setEnabled(false);
+    rotationPID.setEnabled(false);
+    positionPID.setEnabled(true);
+    rotationPID.setEnabled(true);
+
+    resetDeg();
+    positionPID.setTarget(0.0f);
+    rotationPID.setTarget(0.0f);
 }
 
 
@@ -436,4 +475,43 @@ void TestTuneInnerControlLoop()
     }
 }
 
+// ── Centered-rotation sequencer ──────────────────────────────────
+enum class CenteredRotState { IDLE, STEP_FORWARD, TURNING, STEP_BACK };
+static CenteredRotState centeredState = CenteredRotState::IDLE;
+static float            centeredDeg   = 0.0f;
+
+void setTargetRotationCentered(float deg)
+{
+    if (isInAction || centeredState != CenteredRotState::IDLE) return;
+    centeredDeg   = deg;
+    centeredState = CenteredRotState::STEP_FORWARD;
+    setTargetPosition(WHEEL_CENTER_TO_REAL_CENTER_CM);
+}
+
+// Call this from tick(), right after the outer position/rotation PID block.
+void tickCentered()
+{
+    if (centeredState == CenteredRotState::IDLE) return;
+    if (isInAction) return;   // wait for current move to finish
+
+    switch (centeredState) {
+        case CenteredRotState::STEP_FORWARD:
+            centeredState = CenteredRotState::TURNING;
+            setTargetRotation(centeredDeg);
+            break;
+
+        case CenteredRotState::TURNING:
+            centeredState = CenteredRotState::STEP_BACK;
+            setTargetPosition(-WHEEL_CENTER_TO_REAL_CENTER_CM);
+            break;
+
+        case CenteredRotState::STEP_BACK:
+            centeredState = CenteredRotState::IDLE;
+            break;
+
+        default:
+            centeredState = CenteredRotState::IDLE;
+            break;
+    }
+}
 } // namespace motors

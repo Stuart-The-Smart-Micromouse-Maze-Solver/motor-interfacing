@@ -222,6 +222,7 @@ void correctGyroDriftFromWalls(float distLeftMM, float distRightMM, float alpha)
         weight = (NOMINAL_MM / dist) * 0.5f;
     }
 
+    /*
     // ── Sanity gate: reject implausible corrections ───────────────────────────
     // Max plausible heading error inside a corridor is about 15°.
     if (fabsf(wallAngleErr) > 15.0f) return;
@@ -233,5 +234,27 @@ void correctGyroDriftFromWalls(float distLeftMM, float distRightMM, float alpha)
     // lerp: zeroOffsetDeg += (alpha * weight) * (currentAngle - wallAngleErr)
     float effectiveAlpha = alpha * weight;
     float currentAngle   = integratedDeg - zeroOffsetDeg;
+    zeroOffsetDeg += effectiveAlpha * (currentAngle - wallAngleErr);
+    */
+    // ── Sanity gate ───────────────────────────────────────────────────────────
+    if (fabsf(wallAngleErr) > 15.0f) return;
+
+    // ── Deadband: ignore tiny corrections — they're just sensor noise ─────────
+    // Below this threshold, don't touch the gyro at all.
+    // This prevents the correction from constantly hunting when already aligned.
+    const float DEADBAND_DEG = 0.5f;   // tune: ~0.3–1.0° is a good range
+    if (fabsf(wallAngleErr) < DEADBAND_DEG) return;
+
+    // ── Proportional alpha: correction strength scales with how wrong we are ──
+    // Small errors → gentle nudge. Large errors → stronger pull.
+    // MAX_CORRECTION_DEG is the error at which alpha reaches its full value.
+    // Below that it scales linearly down toward zero at the deadband edge.
+    const float MAX_CORRECTION_DEG = 5.0f;   // tune: error magnitude for full alpha
+    float errorScale = fabsf(wallAngleErr) / MAX_CORRECTION_DEG;
+    errorScale = constrain(errorScale, 0.0f, 1.0f);   // clamp at 1.0 for large errors
+
+    float effectiveAlpha = alpha * weight * errorScale;
+
+    float currentAngle = integratedDeg - zeroOffsetDeg;
     zeroOffsetDeg += effectiveAlpha * (currentAngle - wallAngleErr);
 }

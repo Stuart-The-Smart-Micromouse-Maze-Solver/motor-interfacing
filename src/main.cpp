@@ -54,6 +54,11 @@ void setTargetTurn(float deg) {
   motors::setTargetRotation(deg);
 }
 
+void zeroButtonClicked() {
+  motionAbort();
+  motors::zero();
+}
+
 
 // ═══════════════════════════════════════════════════════════════════
 //  Setup
@@ -94,15 +99,16 @@ void setup()
   xTaskCreatePinnedToCore(
     [](void* p){ 
         robotServer.begin(
-          WIFI_SSID, 
-          WIFI_PWD, 
+          WIFI_SSID,
+          WIFI_PWD,
           startButtonClicked,
           stopButtonClicked,
           restartButtonClicked,
           setTargetPosition,
           setTargetTurn,
           [](const String& seq) -> bool { return motionExecute(seq); },
-          []() { needsCalibrate = true; }
+          []() { needsCalibrate = true; },
+          zeroButtonClicked
         );
 
         TickType_t lastWakeTime = xTaskGetTickCount();
@@ -195,6 +201,12 @@ void loop()
   if (needsRestart) {
     // ── Run demo sequence ────────────────────────────────────────
     needsRestart = false;
+
+    // Clear any in-flight motion and zero pose before starting sequence.
+    // Without this, if isInAction==true from a prior move, setTargetPosition()
+    // silently returns and the first primitive is skipped entirely.
+    motionAbort();
+    motors::zero();
 
     robotServer.log("Executing demo: F,R,F,R,F,R,F (square)");
     motionExecute("F,R,F,R,F,R,F");

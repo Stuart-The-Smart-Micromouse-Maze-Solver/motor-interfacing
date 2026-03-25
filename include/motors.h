@@ -41,5 +41,14 @@ void brake(uint32_t ms);
 void setTargetPosition(float cm);
 void setTargetRotation(float deg);
 
+// Zero both position (encoders) and orientation (gyro).
+// Aborts any active move, resets encoder counts, resets gyro heading,
+// and clears all PID targets and velocity state.
+// Call motionAbort() before this if a sequence may be running.
+void zero();
+
 void TestTuneInnerControlLoop();
+
+void setTargetRotationCentered(float deg);
+void tickCentered();
 }

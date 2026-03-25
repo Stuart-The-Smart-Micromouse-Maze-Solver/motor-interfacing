@@ -28,7 +28,8 @@ public:
                void (*posFunc)(int),
                void (*turnFunc)(float),
                bool (*execFunc)(const String&) = nullptr,
-               void (*calibrateFunc)() = nullptr);
+               void (*calibrateFunc)() = nullptr,
+               void (*zeroFunc)() = nullptr);
 
     // Thread-safe: callable from Core 1 / motors task / any task.
     void log(const String& msg);
@@ -52,6 +53,7 @@ private:
     void (*_turnCallback)(float) = nullptr;
     bool (*_execCallback)(const String&) = nullptr;
     void (*_calibrateCallback)() = nullptr;
+    void (*_zeroCallback)()      = nullptr;
 
     SemaphoreHandle_t _logMutex  = nullptr;
     String  _logBuffer[LOG_RING_SIZE];

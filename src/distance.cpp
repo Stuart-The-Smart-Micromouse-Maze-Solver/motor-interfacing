@@ -26,13 +26,18 @@ VL53L4CX sensorLeft(&I2CBus1, XSHUT_PIN_LEFT);
 VL53L4CX sensorCenter(&I2CBus0, XSHUT_PIN_CENTER);
 VL53L4CX sensorRight(&I2CBus0, XSHUT_PIN_RIGHT);
 
-static int left_distance = -1;
-static int center_distance = -1;
-static int right_distance = -1;
+// EMA smoothing factor — sensor fires at ~30Hz (33ms budget).
+// 0.2 → tau ≈ 132ms, enough to reject single-sample spikes without too much lag.
+#define EMA_ALPHA 0.2f
 
-static bool left_ready = false;
+// Stored as float internally so the EMA isn't quantized; exposed as int.
+static float left_filtered   = -1.0f;
+static float center_filtered = -1.0f;
+static float right_filtered  = -1.0f;
+
+static bool left_ready   = false;
 static bool center_ready = false;
-static bool right_ready = false;
+static bool right_ready  = false;
 
 static bool initSingleSensor(VL53L4CX &sensor, uint8_t address, const char *name)
 {
@@ -56,23 +61,35 @@ static bool initSingleSensor(VL53L4CX &sensor, uint8_t address, const char *name
 }
 
 
-static void readSingleSensor(VL53L4CX &sensor, int &cachedDistance)
+static void readSingleSensor(VL53L4CX &sensor, float &filtered)
 {
   uint8_t dataReady = 0;
   sensor.VL53L4CX_GetMeasurementDataReady(&dataReady);
 
-  if (dataReady) {
-    VL53L4CX_MultiRangingData_t data;
-    sensor.VL53L4CX_GetMultiRangingData(&data);
-    sensor.VL53L4CX_ClearInterruptAndStartMeasurement();
+  if (!dataReady) return;
 
-    if (data.NumberOfObjectsFound > 0) {
-      int status = data.RangeData[0].RangeStatus;
-      // Accept valid readings (0) or out-of-bounds but usable readings (4)
-      if (status == 0 || status == 4) {
-        cachedDistance = data.RangeData[0].RangeMilliMeter;
-      }
-    }
+  VL53L4CX_MultiRangingData_t data;
+  sensor.VL53L4CX_GetMultiRangingData(&data);
+  sensor.VL53L4CX_ClearInterruptAndStartMeasurement();
+
+  if (data.NumberOfObjectsFound <= 0) return;
+
+  // VL53L4CX is a multi-target sensor — RangeData[0] is NOT guaranteed to be
+  // the nearest object. Scan all detected targets and take the closest valid one.
+  int bestRaw = -1;
+  for (int i = 0; i < data.NumberOfObjectsFound; i++) {
+    if (data.RangeData[i].RangeStatus != 0) continue;  // status 4 = sigma fail, produces garbage/negative values
+    int r = data.RangeData[i].RangeMilliMeter;
+    if (r < 1 || r > 6000) continue;
+    if (bestRaw < 0 || r < bestRaw) bestRaw = r;
+  }
+  if (bestRaw < 0) return;  // no valid target this cycle
+
+  // Seed the filter on first valid reading instead of blending from -1
+  if (filtered < 0.0f) {
+    filtered = (float)bestRaw;
+  } else {
+    filtered = EMA_ALPHA * (float)bestRaw + (1.0f - EMA_ALPHA) * filtered;
   }
 }
 
@@ -117,11 +134,12 @@ bool distanceInit()
 
 void distanceUpdateAll()
 {
-  if (left_ready)   readSingleSensor(sensorLeft, left_distance);
-  if (center_ready) readSingleSensor(sensorCenter, center_distance);
-  if (right_ready)  readSingleSensor(sensorRight, right_distance);
+  if (left_ready)   readSingleSensor(sensorLeft,   left_filtered);
+  if (center_ready) readSingleSensor(sensorCenter, center_filtered);
+  if (right_ready)  readSingleSensor(sensorRight,  right_filtered);
 }
 
-int getDistanceLeft()  { return left_distance; }
-int getDistanceFront() { return center_distance; }
-int getDistanceRight() { return right_distance; }
+// Returns -1 if no valid reading has arrived yet
+int getDistanceLeft()  { return (int)left_filtered;   }
+int getDistanceFront() { return (int)center_filtered; }
+int getDistanceRight() { return (int)right_filtered;  }

@@ -47,7 +47,7 @@ const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.14159f;
 const float WHEEL_BASE_DISTANCE = 6.7f;
 
 const float SIDE_TOF_TO_WALL_CM = 4.25f;
-const float FRONT_TOF_TO_WALL_CM = 2.0f;
+const float FRONT_TOF_TO_WALL_CM = 3.5f;
 
 const int MOTOR_PWM_MIN = 100;
 const int MOTOR_PWM_MAX = 255;
@@ -60,7 +60,7 @@ const int MOTOR_ACTIVE_PWM_RANGE = MOTOR_PWM_MAX - MOTOR_PWM_MIN;
 const float MAX_VELOCITY_RPM = 200.0f;   // max RPM the position PID can request
                                           // 200 RPM ≈ 35 cm/s with your wheels
 const float MAX_TURN_RATE    = 150.0f;   // max angular correction from rotation PID
-const int   MAX_ACCEL        = 5;        // RPM change per 200Hz tick = 1000 RPM/sec ramp
+const int   MAX_ACCEL        = 20;       // RPM change per 200Hz tick = 4000 RPM/sec ramp
 const float CALIBRATION_RPM  = 200.0f;   // max RPM during auto-calibration
 const int MOUSE_OFF_GROUND_ANGLE = 30;
 
@@ -85,3 +85,7 @@ const float FRONT_CORR_MAX_RANGE_CM   = FRONT_TOF_TO_WALL_CM + CELL_SIZE_CM * 2.
 const float FRONT_CORR_SNAP_TOL_CM    = 4.0f;   // max error from grid line to trust
 const float FRONT_CORR_DEADBAND_CM    = 0.3f;    // ignore errors smaller than this
 const float FRONT_CORR_ALPHA          = 0.15f;   // blend rate per tick (gentle)
+
+
+
+const float WHEEL_CENTER_TO_REAL_CENTER_CM = 2.0f;  // measure physically

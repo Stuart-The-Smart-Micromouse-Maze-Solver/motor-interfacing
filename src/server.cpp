@@ -25,17 +25,17 @@ static const char PAGE_HTML[] PROGMEM = R"rawhtml(
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@700;800&display=swap');
   :root {
-    --bg:      #0a0a0f;
-    --surface: #12121a;
-    --card:    #1a1a26;
-    --border:  #2a2a40;
-    --accent:  #7c6dfa;
-    --green:   #39d98a;
-    --red:     #f05e6b;
-    --amber:   #ffb547;
-    --cyan:    #4bc0c0;
-    --purple:  #9966ff;
-    --text:    #e2e2f0;
+    --bg:      #f5f5fa;
+    --surface: #ffffff;
+    --card:    #ebebf5;
+    --border:  #c8c8de;
+    --accent:  #5b4de8;
+    --green:   #18a060;
+    --red:     #d63040;
+    --amber:   #c47d00;
+    --cyan:    #1a9090;
+    --purple:  #7040e0;
+    --text:    #1a1a2e;
     --muted:   #6a6a8a;
     --mono:    'JetBrains Mono', monospace;
     --display: 'Syne', sans-serif;
@@ -252,6 +252,7 @@ static const char PAGE_HTML[] PROGMEM = R"rawhtml(
   </div>
   <button class="btn restart" onclick="cmd('/restart')">↺ RESTART</button>
   <button class="btn cmd" onclick="if(confirm('Robot will move! 30cm clear space needed.'))cmd('/calibrate')" style="border-color:#39d98a;color:#39d98a">⚡ CALIBRATE</button>
+  <button class="btn cmd" onclick="cmd('/zero')" style="border-color:#4bc0c0;color:#4bc0c0">⊕ ZERO POSE</button>
 
   <!-- Arrow pad -->
   <div class="section-label">Quick Move</div>
@@ -386,7 +387,7 @@ function makeChart(id, datasets) {
         x: { display: false },
         y: {
           grid: {
-            color: ctx => ctx.tick.value === 0 ? '#3a3a5a' : '#1e1e2e',
+            color: ctx => ctx.tick.value === 0 ? '#9090b8' : '#d0d0e8',
             lineWidth: ctx => ctx.tick.value === 0 ? 2 : 1
           },
           ticks: { color: '#6a6a8a', font: { family: "'JetBrains Mono'", size: 10 } }
@@ -547,7 +548,8 @@ void RobotServer::begin(const char* ssid, const char* password,
                         void (*posFunc)(int),
                         void (*turnFunc)(float),
                         bool (*execFunc)(const String&),
-                        void (*calibrateFunc)())
+                        void (*calibrateFunc)(),
+                        void (*zeroFunc)())
 {
     _startCallback   = startFunc;
     _stopCallback    = stopFunc;
@@ -556,6 +558,7 @@ void RobotServer::begin(const char* ssid, const char* password,
     _turnCallback    = turnFunc;
     _execCallback    = execFunc;
     _calibrateCallback = calibrateFunc;
+    _zeroCallback      = zeroFunc;
 
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
@@ -617,6 +620,7 @@ void RobotServer::begin(const char* ssid, const char* password,
     _server.on("/stop",    HTTP_GET, [this](AsyncWebServerRequest* req) { if (_stopCallback)    _stopCallback();    req->send(200, "text/plain", "OK"); });
     _server.on("/restart", HTTP_GET, [this](AsyncWebServerRequest* req) { if (_restartCallback) _restartCallback(); req->send(200, "text/plain", "OK"); });
     _server.on("/calibrate", HTTP_GET, [this](AsyncWebServerRequest* req) { if (_calibrateCallback) _calibrateCallback(); req->send(200, "text/plain", "Calibrating..."); });
+    _server.on("/zero",    HTTP_GET, [this](AsyncWebServerRequest* req) { if (_zeroCallback)    _zeroCallback();    req->send(200, "text/plain", "Zeroed"); });
 
     _server.begin();
 

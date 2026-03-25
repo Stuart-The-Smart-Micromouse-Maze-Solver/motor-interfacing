@@ -131,8 +131,10 @@ void readBothEncoders(int32_t& leftOut, int32_t& rightOut) {
 
 //   return revs / dt_min;
 // }
-// In encoders.cpp
-float alpha = 0.15f; // Lower = smoother but more lag. Raised from 0.15 to cut filter lag in half.
+// Time-normalized EMA: tau = 14ms, consistent regardless of call rate.
+// alpha = 1 - exp(-dt / tau) so the filter behaves identically whether
+// readRPM() is called at 1kHz (Phase 1 characterization) or 400Hz (velocity PID).
+static const float RPM_FILTER_TAU_US = 14000.0f;
 
 float readRPM(Encoder& encoder)
 {
@@ -142,7 +144,7 @@ float readRPM(Encoder& encoder)
 
   unsigned long now = micros();
   unsigned long dt_us = now - encoder.lastReadTime;
-  if (dt_us == 0) return encoder.filteredRPM; 
+  if (dt_us == 0) return encoder.filteredRPM;
 
   int32_t dc = c - encoder.lastCounts;
   encoder.lastCounts = c;
@@ -151,7 +153,8 @@ float readRPM(Encoder& encoder)
   float dt_min = dt_us / 60000000.0f;
   float instantaneousRPM = (dc / (float)COUNTS_PER_REV) / dt_min;
 
-  // EMA Filter: New Value = (Current * alpha) + (Previous * (1 - alpha))
+  // Time-normalized EMA: same time constant at any call rate
+  float alpha = 1.0f - expf(-(float)dt_us / RPM_FILTER_TAU_US);
   encoder.filteredRPM = (instantaneousRPM * alpha) + (encoder.filteredRPM * (1.0f - alpha));
 
   return encoder.filteredRPM;

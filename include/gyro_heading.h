@@ -5,11 +5,6 @@
 #include <stdint.h>
 
 
-// delete
-bool gyroIsValid();
-float angleDiffDeg(float target, float current);
-float gyroHeadingDeg();
-// delete
 
 
 
