@@ -9,14 +9,14 @@
 #include "autotune.h"
 #include <Wire.h>
 #include <FastLED.h>
+#include "maze_solver.h"
 
+// initialize debug LED
 CRGB leds[1];
 
-void SetLED(CRGB col) {
-  leds[0] = col;
-  FastLED.show();
-}
+void SetLED(CRGB col) {leds[0] = col;FastLED.show();}
 
+// INIT DEBUG SERVER
 RobotServer robotServer(
   &motors::rotationPID,
   &motors::positionPID,
@@ -60,11 +60,33 @@ void zeroButtonClicked() {
 }
 
 
+MazeSolverHandlers h;
+
 // ═══════════════════════════════════════════════════════════════════
 //  Setup
 // ═══════════════════════════════════════════════════════════════════
 void setup()
 {
+  
+
+  h.moveForward = []() { motionExecute("F"); };
+  h.turnLeft    = []() { motionExecute("L"); };
+  h.turnRight   = []() { motionExecute("R"); };
+
+  h.wallFront = []() -> bool { return getDistanceFront() < (FRONT_TOF_TO_WALL_CM * 10.0f + 20.0f); };
+  h.wallLeft  = []() -> bool { return getDistanceLeft()  < (SIDE_TOF_TO_WALL_CM  * 10.0f + 50.0f); };
+  h.wallRight = []() -> bool { return getDistanceRight() < (SIDE_TOF_TO_WALL_CM  * 10.0f + 50.0f); };
+
+  h.mazeWidth  = []() -> int { return 8; };
+  h.mazeHeight = []() -> int { return 8; };
+
+  h.log = [](const char* msg) { robotServer.log(String(msg)); };
+
+  mazeSolverInit(h);
+
+
+
+
   FastLED.addLeds<WS2812, RGB_LED_PIN, GRB>(leds, 1).setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(60);
   SetLED(CRGB::Black);
@@ -208,6 +230,7 @@ void loop()
     motionAbort();
     motors::zero();
 
+    /*
     robotServer.log("Executing demo: F,R,F,R,F,R,F (square)");
     motionExecute("F,R,F,R,F,R,F");
 
@@ -217,5 +240,18 @@ void loop()
       yield();
     }
     robotServer.log("Demo complete.");
+    */
+
+    robotServer.log("STARTING MAZE SOLVE.");
+    mazeSolverInit(h);
+    
+    do {
+        motors::tick();
+        motionUpdate();
+        mazeSolverUpdate();
+        yield();
+    } while (mazeSolverBusy());
+    
+    robotServer.log("Maze solve complete.");
   }
 }
