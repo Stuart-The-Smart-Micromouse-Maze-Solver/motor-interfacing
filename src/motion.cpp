@@ -148,9 +148,22 @@ static bool parseInstructions(const String& input) {
 // ═══════════════════════════════════════════════════════════════════
 static void applyFrontWallCorrection()
 {
-    int frontMM = getDistanceFront();
+    // Use min(raw, filtered) to defeat EMA lag during fast approach.
+    // At cruise speed (200 RPM = 35 cm/s) the EMA filter (α=0.2, 30 Hz) lags the
+    // true front distance by ~4.6 cm.  Using the filtered reading alone makes the
+    // correction compute an idealRemainingCm that is ~4.6 cm too large, creating a
+    // moving target the robot can never catch at 40 RPM.  The robot ends up chasing
+    // the target for the entire approach and stopping at 16–20 mm instead of 35 mm.
+    // Raw is updated every sensor cycle (~33 ms) and has no lag; it is the right
+    // signal for the correction.  Taking min(raw, filtered) means:
+    //   • Approaching fast (raw < filtered due to lag) → use raw (accurate, conservative)
+    //   • Receding / stable (raw ≥ filtered) → use filtered (noise-reduced)
+    int frontFiltered = getDistanceFront();
+    int frontRaw      = getDistanceFrontRaw();
+    int frontMM = (frontRaw > 0 && frontRaw < frontFiltered) ? frontRaw : frontFiltered;
     if (frontMM <= 0) {
-        motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
+        // No valid reading — don't restore full-speed bounds, a mid-approach glitch
+        // would send the robot charging into the wall at 200 RPM.  Keep last cap.
         return;
     }
 
@@ -181,17 +194,32 @@ static void applyFrontWallCorrection()
     float idealRemainingCm = frontCm - FRONT_TOF_TO_WALL_CM;
     if (idealRemainingCm < 0.0f) idealRemainingCm = 0.0f;  // don't reverse
 
+    // Deadband: within 3 mm of the ideal stop, stop nudging the target.
+    // Without this, sensor noise keeps pushing the PID target by tiny amounts that
+    // hold position error right at the 0.5 cm settle threshold, resetting the 100 ms
+    // settle timer on every correction tick and preventing isInAction from clearing.
+    if (idealRemainingCm < FRONT_CORR_DEADBAND_CM) {
+        motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, FRONT_MIN_APPROACH_RPM);
+        return;
+    }
+
     float newTarget = currentPosCounts + idealRemainingCm * COUNTS_PER_CM;
 
-    // Cap how far back the front sensor can pull the target.
-    // This prevents a spurious short reading (opening reflection, perpendicular wall)
-    // from stopping the robot more than 3/4 of a cell early.
-    // 0.75 × 18 = 13.5 cm covers a robot starting at the centre of its cell
+    // Pullback cap: prevents a spurious short reading from stopping the robot
+    // more than 3/4 of a cell early.  13.5 cm covers a centre-of-cell start
     // (9 cm offset → 12.5 cm overshoot including sensor offset).
-    const float MAX_PULLBACK_CM = CELL_SIZE_CM * 0.75f;  // 13.5 cm
+    //
+    // Extension cap: 9 cm (= 0.5 cells) covers starting from cell centre where
+    // the encoder target undershoots the front wall by up to 5.5 cm, and handles
+    // accumulated drift up to 90 mm across a long Dijkstra path.  Without this,
+    // the old 1.5 cm cap permanently blocked the correction whenever drift exceeded
+    // 15 mm, causing the robot to settle far from the wall and "try to converge."
+    // The collision abort at 20 mm is the hard safety backstop against overshoot.
+    const float MAX_PULLBACK_CM   = CELL_SIZE_CM * 0.75f;  // 13.5 cm
+    const float MAX_EXTENSION_CM  = CELL_SIZE_CM * 0.5f;   //  9.0 cm
     newTarget = constrain(newTarget,
-                          activeForwardBaseTarget - MAX_PULLBACK_CM * COUNTS_PER_CM,
-                          activeForwardBaseTarget + 1.5f * COUNTS_PER_CM);
+                          activeForwardBaseTarget - MAX_PULLBACK_CM  * COUNTS_PER_CM,
+                          activeForwardBaseTarget + MAX_EXTENSION_CM * COUNTS_PER_CM);
 
     float currentTarget = motors::positionPID.getTarget();
     motors::positionPID.setTarget(currentTarget + FRONT_CORR_ALPHA * (newTarget - currentTarget));
@@ -359,6 +387,14 @@ void motionAbort() {
     motors::performingTurn = false;
     motors::positionPID.setTarget(readAvgPosition());
     motors::rotationPID.setTarget(0.0f);
+    // Clear PID integrals so a crash doesn't corrupt the next run.
+    // Without this, a large integral from fighting a wall (e.g. position PID
+    // pushing forward against the abort threshold) persists into the next
+    // motionExecute() call, causing the "needs restart after crash" symptom.
+    motors::positionPID.setEnabled(false);
+    motors::positionPID.setEnabled(true);
+    motors::rotationPID.setEnabled(false);
+    motors::rotationPID.setEnabled(true);
     // Disable velocity PIDs so they don't re-engage on the next tick() call.
     // motors::stop() alone only zeroes PWM; without disabling the PIDs they
     // immediately fight back to their last targets.

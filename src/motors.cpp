@@ -364,7 +364,7 @@ void tick()
             const float NOMINAL_MM     = SIDE_TOF_TO_WALL_CM * 10.0f;  // 42.5 mm
             const float CELL_MM        = CELL_SIZE_CM * 10.0f;          // 180 mm
             const float GAIN           = 0.12f;   // deg/mm  (both walls)
-            const float GAIN_SINGLE    = 0.08f;   // deg/mm  (single wall)
+            const float GAIN_SINGLE    = 0.12f;   // deg/mm  (single wall — raised from 0.08)
             const float MAX_TARGET_DEG = 5.0f;
             const float MAX_SINGLE_DEG = 4.0f;
             const uint32_t HOLD_MS     = 150;
@@ -511,6 +511,12 @@ void setTargetPosition(float cm)
     // That pre-loaded burst causes the heading to spike at move start.
     rotationPID.setEnabled(false);
     rotationPID.setEnabled(true);
+    // Clear positionPID integral so a crash/abort doesn't corrupt the next run.
+    // After a collision abort the positionPID can hold a large negative integral
+    // (from fighting the wall); without clearing it here the next forward move
+    // starts with a pre-loaded reverse bias, causing the robot to stall or lurch.
+    positionPID.setEnabled(false);
+    positionPID.setEnabled(true);
 
     tof_correction_angle = 0.0f;
 
@@ -522,7 +528,7 @@ void setTargetPosition(float cm)
     lastWallCenterMs    = 0;
     if (fabsf(cm) > 5.0f) {
         const float GAIN       = 0.12f;
-        const float GAIN_S     = 0.08f;
+        const float GAIN_S     = 0.12f;
         const float MAX_DEG    = 5.0f;
         const float MAX_DEG_S  = 2.5f;
         const float MIN_VALID  = 8.0f;
@@ -541,13 +547,21 @@ void setTargetPosition(float cm)
         } else if (rValid && (!lValid || dR <= dL)) {
             float n = roundf((dR - NOMINAL_MM) / CELL_MM);
             if (n < 0.0f) n = 0.0f;
-            wallCenterTargetDeg = constrain(
-                (dR - (NOMINAL_MM + n * CELL_MM)) * GAIN_S, -MAX_DEG_S, MAX_DEG_S);
+            // Only pre-seed from n=0 walls (wall clearly in the adjacent cell).
+            // n>0 walls are 1+ cells away and often artifacts of post-turn geometry
+            // (corner reflections, perpendicular walls from the previous leg). Using
+            // them pre-seeds a wrong initial heading bias that drives the robot into
+            // the very wall it is trying to avoid. Tick-level centering handles n>0
+            // corrections once the robot is already moving and the sensor stabilises.
+            if (n == 0.0f) {
+                wallCenterTargetDeg = constrain((dR - NOMINAL_MM) * GAIN_S, -MAX_DEG_S, MAX_DEG_S);
+            }
         } else if (lValid) {
             float n = roundf((dL - NOMINAL_MM) / CELL_MM);
             if (n < 0.0f) n = 0.0f;
-            wallCenterTargetDeg = constrain(
-                -(dL - (NOMINAL_MM + n * CELL_MM)) * GAIN_S, -MAX_DEG_S, MAX_DEG_S);
+            if (n == 0.0f) {
+                wallCenterTargetDeg = constrain(-(dL - NOMINAL_MM) * GAIN_S, -MAX_DEG_S, MAX_DEG_S);
+            }
         }
         if (rValid || lValid) lastWallCenterMs = millis();
     }
