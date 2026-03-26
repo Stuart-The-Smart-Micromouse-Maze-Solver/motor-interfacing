@@ -299,9 +299,15 @@ void tick()
             bool posOk  = fabsf(positionPID.getError()) / COUNTS_PER_CM < 0.5f;
             bool turnOk = fabsf(rotationPID.getError()) < COMPLETE_ROTATION_ERR;
 
+            // Angle alone is not enough for turn completion.
+            // The robot can still be scrubbing/coasting sideways a few mm.
+            bool turnVelOk =
+                fabsf(leftEncoder.filteredRPM)  < TURN_SETTLE_RPM &&
+                fabsf(rightEncoder.filteredRPM) < TURN_SETTLE_RPM;
+
             bool inZone;
             if (performingTurn) {
-                inZone = turnOk;
+                inZone = turnOk && turnVelOk;
             } else {
                 inZone = posOk && turnOk;
             }
@@ -317,9 +323,6 @@ void tick()
                     angularVelOffset = 0.0f;
                     lastRightVel = 0.0f;
                     lastLeftVel  = 0.0f;
-                    // Hard stop first, then disable velocity PIDs.
-                    // setEnabled(false) zeroes integralCumulation + output,
-                    // which prevents P-term oscillation when target returns to 0.
                     stop();
                     rightVelocityPID.setTarget(0.0f);
                     leftVelocityPID.setTarget(0.0f);

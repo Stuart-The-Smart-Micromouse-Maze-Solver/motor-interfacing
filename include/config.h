@@ -107,6 +107,8 @@ const float FRONT_CORR_ALPHA          = 0.80f;   // blend rate per tick (~97% co
 const float FRONT_SLOW_ZONE_CM      = 20.0f;
 const float FRONT_MIN_APPROACH_RPM  = 50.0f;   
 
+const uint32_t POST_TURN_WAIT_MS = 60;   // short dwell after turns
+const float    TURN_SETTLE_RPM   = 22.0f; // wheels must be nearly stopped
 
 // Distance from the wheel axle midpoint to the robot's geometric centre (nose side).
 // Set to 0 until physically measured — an incorrect value causes ~2× this error

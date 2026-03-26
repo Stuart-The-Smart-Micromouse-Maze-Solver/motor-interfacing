@@ -305,9 +305,16 @@ void motionUpdate() {
 
     // For FORWARD and TURN, check motors::isInAction
     if (!motors::isInAction) {
-        // Current move/turn completed
+        // After a turn, wait a moment before starting the next primitive.
+        // This gives the chassis and side ToFs one more beat to settle.
+        if (!currentPrimIsForward && waitUntilMs == 0) {
+            waitUntilMs = millis() + POST_TURN_WAIT_MS;
+            return;
+        }
+
         currentPrimIsForward = false;
-        primActive = false;  // triggers next primitive on next call
+        primActive = false;
+        
     } else if (currentPrimIsForward) {
         // Emergency collision abort — use raw (unfiltered) front reading to
         // bypass the EMA lag (~150ms) that delays detection at speed.
