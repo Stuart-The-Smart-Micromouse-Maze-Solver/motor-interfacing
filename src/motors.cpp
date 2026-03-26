@@ -47,7 +47,7 @@ const int   POSITION_PID_DELAY_US = 5000;   // 200 Hz
 const int   VELOCITY_PID_DELAY_US = 2500;   // 400 Hz
 
 const float COMPLETE_POSITION_ERR = 1.0f;   // encoder counts (~0.07 cm)
-const float COMPLETE_ROTATION_ERR = 2.0f;   // degrees
+const float COMPLETE_ROTATION_ERR = 2.5f;   // degrees
 const uint32_t SETTLE_TIME_MS     = 100;    // hold within tolerance for this long
 
 // Wall correction alpha — applied at 200 Hz during straight moves only
