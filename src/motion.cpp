@@ -8,7 +8,7 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Primitive command types
 // ═══════════════════════════════════════════════════════════════════
-enum PrimType { PRIM_FORWARD, PRIM_TURN, PRIM_WAIT };
+enum PrimType { PRIM_FORWARD, PRIM_TURN, PRIM_UTURN, PRIM_WAIT };
 
 struct Primitive {
     PrimType type;
@@ -107,8 +107,8 @@ static bool parseInstructions(const String& input) {
             }
             case 'U':
             case 'B': {
-                // U-turn / turnaround
-                if (!enqueue(PRIM_TURN, 180.0f)) return false;
+                // U-turn — direction chosen at execution time from side ToF readings
+                if (!enqueue(PRIM_UTURN, 0.0f)) return false;
                 break;
             }
             case 'W': {
@@ -247,6 +247,31 @@ static void startNextPrimitive() {
             motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
             motors::setTargetRotationCentered(p.value);
             break;
+
+        case PRIM_UTURN: {
+            // Choose rotation direction based on which side has more clearance.
+            // Turning into the tighter side risks clipping the wall with the nose
+            // or tail during a 180° spin — always rotate toward open space.
+            float dL = (float)getDistanceLeft();
+            float dR = (float)getDistanceRight();
+            bool  lValid = (dL > 0 && dL < 1000.0f);
+            bool  rValid = (dR > 0 && dR < 1000.0f);
+            float deg;
+            if (lValid && rValid) {
+                deg = (dL >= dR) ? -180.0f : 180.0f;  // left more open → turn left, right more open → turn right
+            } else if (lValid) {
+                deg = -180.0f;   // only left visible — assume right is walled, turn left
+            } else if (rValid) {
+                deg = 180.0f;    // only right visible — assume left is walled, turn right
+            } else {
+                deg = 180.0f;    // no side info — default right
+            }
+            Serial.printf("[Motion] U-turn %.0f deg (L=%.0fmm R=%.0fmm)\n", deg, dL, dR);
+            activeForwardBaseTarget = readAvgPosition();
+            motors::positionPID.setOutputBounds(-MAX_VELOCITY_RPM, MAX_VELOCITY_RPM);
+            motors::setTargetRotationCentered(deg);
+            break;
+        }
 
         case PRIM_WAIT:
             Serial.printf("[Motion] Wait %.0f ms\n", p.value);
