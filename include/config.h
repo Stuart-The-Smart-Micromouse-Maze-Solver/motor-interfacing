@@ -50,8 +50,8 @@ const float WHEEL_DIAMETER_CM = 3.34f;
 const float WHEEL_CIRCUMFERENCE_CM = WHEEL_DIAMETER_CM * 3.14159f;
 const float WHEEL_BASE_DISTANCE = 6.7f;
 
-const float SIDE_TOF_TO_WALL_CM = 4.25f;
-const float FRONT_TOF_TO_WALL_CM = 3.5f;
+const float SIDE_TOF_TO_WALL_CM = 5.25f;
+const float FRONT_TOF_TO_WALL_CM = 4.5f;
 
 const int MOTOR_PWM_MIN = 100;
 const int MOTOR_PWM_MAX = 255;
