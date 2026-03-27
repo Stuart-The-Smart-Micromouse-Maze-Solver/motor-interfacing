@@ -32,6 +32,9 @@ extern bool performingTurn;
 
 extern float tof_correction_angle;
 
+extern int32_t cachedLeftCounts;
+extern int32_t cachedRightCounts;
+
 void init();
 void setCommand(Motor* m, int cmd);
 void tick();

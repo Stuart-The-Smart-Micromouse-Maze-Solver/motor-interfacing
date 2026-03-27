@@ -60,8 +60,8 @@ uint32_t nowUs;
 uint32_t last_pos_pid_tick = 0;
 uint32_t last_vel_pid_tick = 0;
 
-static int32_t cachedLeftCounts  = 0;
-static int32_t cachedRightCounts = 0;
+int32_t cachedLeftCounts  = 0;
+int32_t cachedRightCounts = 0;
 
 float lastRightVel     = 0.0f;
 float lastLeftVel      = 0.0f;

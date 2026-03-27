@@ -76,19 +76,19 @@ TelemetrySnapshot onData() {
 
   // ── Heading & position ──────────────────────────────────────────
   // TODO: replace with your actual gyro + encoder accessors
-  // s.heading  = gyroGetHeading();
-  // s.position = motors::positionPID.getFeedback();
+  s.heading  = -readDeg();
+  s.position = (motors::cachedRightCounts + motors::cachedLeftCounts) / 2.0f;
 
   // ── Encoders ────────────────────────────────────────────────────
   // TODO: replace with your encoder count accessors
-  // s.encoder_left  = encoderLeftCount();
-  // s.encoder_right = encoderRightCount();
+  s.encoder_left  = motors::cachedRightCounts;
+  s.encoder_right = motors::cachedLeftCounts;
 
   // ── ToF ─────────────────────────────────────────────────────────
   // TODO: fill in from distance.h
-  // s.tof_l = getDistanceLeft();
-  // s.tof_f = getDistanceFront();
-  // s.tof_r = getDistanceRight();
+  s.tof_l = getDistanceLeft();
+  s.tof_f = getDistanceFront();
+  s.tof_r = getDistanceRight();
 
   // ── PID snapshots ───────────────────────────────────────────────
   s.pos_pid   = pidSnap(&motors::positionPID);
@@ -101,10 +101,10 @@ TelemetrySnapshot onData() {
 
 void onPid(const String& name, float p, float i, float d) {
   // TODO: replace with your PID setter calls, e.g.:
-  // if      (name == "position") { motors::positionPID.setGains(p, i, d); }
-  // else if (name == "rotation") { motors::rotationPID.setGains(p, i, d); }
-  // else if (name == "rvel")     { motors::rightVelocityPID.setGains(p, i, d); }
-  // else if (name == "lvel")     { motors::leftVelocityPID.setGains(p, i, d); }
+  if      (name == "position") { motors::positionPID.setPID(p, i, d); }
+  else if (name == "rotation") { motors::rotationPID.setPID(p, i, d); }
+  else if (name == "rvel")     { motors::rightVelocityPID.setPID(p, i, d); }
+  else if (name == "lvel")     { motors::leftVelocityPID.setPID(p, i, d); }
   server.log("PID " + name + ": P=" + String(p,4) + " I=" + String(i,4) + " D=" + String(d,4));
 }
 
