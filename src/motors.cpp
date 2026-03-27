@@ -186,12 +186,12 @@ void  updateLeftVelocity(float p)  { setCommand(&leftMotor,  (int)p); }
 
 // Position: controls forward/backward motion in encoder counts
 float motor_pos_P  = 5.400000f;
-float motor_pos_I  = 0.150000f;
+float motor_pos_I  = 0.275000f;
 float motor_pos_D  = 1.500000f;
 
 // Rotation: controls heading in degrees
 float motor_turn_P = 5.400000f;
-float motor_turn_I = 0.150000f;
+float motor_turn_I = 0.275000f;
 float motor_turn_D = 1.500000f;
 
 // Velocity: inner loop — same gains applied to both motors
